@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>FM Hub</title>
+<meta name="description" content="Centro de datos de la partida de Football Manager 2024 del Dartford de Adrián Varela.">
+<meta name="theme-color" content="#16140f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icono.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icono-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700;800;900&family=JetBrains+Mono:wght@400;600&family=Public+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="varela_base.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="hero">
+  <div class="wrap">
+    <div class="eyebrow" id="eyebrow">FM Hub</div>
+    <h1 id="titulo">Cargando…</h1>
+    <p class="lead" id="lead"></p>
+    <div class="bigs" id="bigs"></div>
+  </div>
+</header>
+<nav class="top" aria-label="Secciones">
+  <div class="wrap" id="menu">
+    <a href="#inicio">Inicio</a>
+    <a href="#plantilla">Plantilla</a>
+    <a href="#partidos">Partidos</a>
+    <a href="#temporadas">Temporadas</a>
+    <a href="#traspasos">Traspasos</a>
+    <a href="#finanzas">Finanzas</a>
+    <a href="#historial">Historial</a>
+  </div>
+</nav>
+<main id="vista"></main>
+<footer><div class="wrap" id="pie"></div></footer>
+<script>window.FMHUB_PUBLICADO=true;</script><script src="app.js"></script>
+</body>
+</html>

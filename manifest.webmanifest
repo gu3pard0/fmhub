@@ -1,0 +1,16 @@
+{
+  "name": "FM Hub · Dartford de Varela",
+  "short_name": "FM Hub",
+  "description": "Datos de la partida de Football Manager 2024, solo para ver.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#16140f",
+  "theme_color": "#16140f",
+  "lang": "es",
+  "icons": [
+    {"src": "icono-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "icono-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "icono.svg", "sizes": "any", "type": "image/svg+xml"}
+  ]
+}

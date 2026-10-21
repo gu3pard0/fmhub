@@ -1,0 +1,50 @@
+/* FM Hub: estilos propios encima de varela_base.css (copiado de varela.html). */
+html,body{overflow-x:hidden}
+main{min-height:60vh}
+nav.top a[aria-current=page]{background:var(--ink);color:var(--bg)}
+section{padding:36px 0 8px}
+.hero{padding:40px 0 30px}
+.hero h1{font-size:clamp(36px,8vw,76px)}
+.bigs{grid-template-columns:repeat(auto-fit,minmax(104px,1fr))}
+.big b{font-size:clamp(20px,3.6vw,31px)}
+a{color:inherit}
+a.j{text-decoration:none;border-bottom:1px dotted var(--mut)}
+a.j:hover{color:var(--gold);border-color:var(--gold)}
+.vacio{color:var(--mut);font-style:italic}
+.fila-btn{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0}
+.btn{border:1px solid var(--ink);background:var(--ink);color:var(--bg);padding:9px 14px;border-radius:10px;font:700 13px Archivo;cursor:pointer;text-decoration:none;display:inline-block}
+.btn.sec{background:var(--card);color:var(--ink);border-color:var(--line)}
+.nov{list-style:none;margin:0;padding:0}
+.nov li{display:grid;grid-template-columns:22px 1fr;gap:8px;padding:7px 0;border-bottom:1px dashed var(--line);font-size:14px}
+.nov li:last-child{border-bottom:0}
+.nov .i{font:700 13px 'JetBrains Mono';text-align:center}
+.nov .up{color:var(--w)}.nov .dn{color:var(--l)}.nov .pt{color:var(--gold)}
+.qr{display:grid;grid-template-columns:150px 1fr;gap:16px;align-items:center}
+.qr img{width:150px;height:150px;border-radius:8px;background:#fff;padding:6px}
+.registro{font:12px/1.5 'JetBrains Mono';color:var(--mut);white-space:pre-wrap;max-height:220px;overflow:auto;margin:0}
+.delta{font:600 10px 'JetBrains Mono';margin-left:4px}
+.delta.up{color:var(--w)}.delta.dn{color:var(--l)}
+.arow{grid-template-columns:120px 1fr 44px}
+.arow b{white-space:nowrap}
+.ficha-cab{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.ficha-cab h2{font-size:clamp(28px,6vw,46px);font-weight:900}
+.origen{font:500 10px 'JetBrains Mono';color:var(--mut);text-transform:uppercase;letter-spacing:.06em}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin:12px 0}
+.kpis .card{padding:12px}
+.chart{margin-top:8px}
+.chart .eje{stroke:var(--line)}
+.chart .linea{fill:none;stroke:var(--gold);stroke-width:2}
+.chart .barI{fill:var(--w)}.chart .barG{fill:var(--l)}
+.mini{font-size:12px;color:var(--mut)}
+td .pill{margin-left:4px}
+tr.propio td{font-weight:700;background:color-mix(in srgb,var(--goldbg) 55%,transparent)}
+@media (max-width:560px){
+  .qr{grid-template-columns:1fr}
+  .arow{grid-template-columns:96px 1fr 40px}
+  th,td{padding:7px 8px}
+  .hero{padding:28px 0 22px}
+}
+/* En el móvil la tabla se desplaza de lado dentro de su recuadro: la primera columna (el nombre) queda fija */
+.tw td:first-child,.tw th:first-child{position:sticky;left:0;z-index:1;background:var(--card)}
+.tw th:first-child{z-index:2}
+.tw tr.propio td:first-child{background:color-mix(in srgb,var(--goldbg) 55%,var(--card))}
