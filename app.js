@@ -46,6 +46,15 @@ function preparar() {
   });
   IDX.golesPorPartido = {};
   for (const g of D.goles) (IDX.golesPorPartido[g.fecha + '|' + g.local + '|' + g.visitante] ||= []).push(g);
+  // FM guarda también los penaltis de la tanda como goles (al 90 o 120): de cada equipo solo cuentan
+  // los primeros tantos como su marcador; el resto son de la tanda y se quitan
+  for (const p of IDX.partidos) {
+    const gs = IDX.golesPorPartido[p.clave];
+    if (!gs) continue;
+    gs.sort((a, b) => a.minuto - b.minuto || a.anadido - b.anadido || a.orden - b.orden);
+    const n = [0, 0], max = [p.goles_local, p.goles_visitante];
+    IDX.golesPorPartido[p.clave] = gs.filter(g => n[g.lado]++ < max[g.lado]);
+  }
   IDX.temporadas = [...new Set(IDX.partidos.map(p => p.temporada))].sort();
   IDX.stats = {};
   for (const e of D.estadisticas) (IDX.stats[e.iu] ||= {})[e.tipo] = e;
@@ -145,6 +154,14 @@ V.inicio = () => {
         <div class="fila-btn"><a class="btn" href="api/exportar-html">Descargar HTML autocontenido</a></div>
         <p class="mini">El HTML lleva todos los datos dentro: se puede abrir sin FM Hub o subir a cualquier hosting.</p>
       </div></div></div>`;
+  // Exportar temporada para Claude (fase 4): solo en la web local, la genera FM Hub
+  const ts = [...IDX.temporadas].reverse();
+  const exp = (window.FMHUB_ESTATICO || window.FMHUB_PUBLICADO) ? '' : `
+    <div class="card"><h4 style="margin-top:0">Exportar temporada para Claude</h4>
+      <p class="mini">Un zip con todo lo de la temporada en JSON (partidos, goleadores, alineaciones, clasificación, plantilla, traspasos, economía, récords) y un resumen corto en .md para pegar en una conversación. También se guarda en la carpeta <b class="mono">exports</b>.</p>
+      <div class="fila-btn"><select id="exp-t" class="btn sec" onchange="document.getElementById('exp-a').href='api/exportar-temporada?t='+encodeURIComponent(this.value)">${ts.map(t => `<option>${esc(t)}</option>`).join('')}</select>
+        <a class="btn" id="exp-a" href="api/exportar-temporada?t=${encodeURIComponent(ts[0] || '')}">Exportar</a></div>
+    </div>`;
   return `<section><div class="wrap">
     <h2 data-n="01">Hoy</h2><p class="sub">Forma de los últimos partidos oficiales, novedades de las últimas lecturas y estado de FM Hub.</p>
     <div class="form">${forma}</div>
@@ -154,7 +171,7 @@ V.inicio = () => {
       <div class="card"><h4 style="margin-top:0">Últimos partidos</h4>${ult.map(p => `<div class="tri"><span class="d">${fecha(p.fecha)}</span><span><span class="ha">${p.casa ? 'C' : 'F'}</span>${esc(p.rival)} <span class="mini">${esc(p.competicion || '')}</span></span>${pillRes(p)}</div>`).join('')}
         <h4>Últimos traspasos</h4>${tras.map(t => `<div class="tri"><span class="d">${fecha(t.fecha)}</span><span class="${t.entra ? 'in' : 'out'}">${t.entra ? '↘' : '↗'} ${jug(t.iu, t.jugador)} <span class="mini">${esc(t.otro_club || 'libre')}</span></span><span class="f">${t.cesion ? 'cesión' : eur(t.precio_eur)}</span></div>`).join('')}</div>
     </div>
-    <div class="cols2" style="margin-top:14px">${qr}
+    <div class="cols2" style="margin-top:14px">${qr}${exp}
       ${D.registro ? `<div class="card"><h4 style="margin-top:0">Estado de FM Hub</h4><pre class="registro">${esc(D.registro.join('\n')) || 'Sin registro.'}</pre></div>` : ''}
     </div>
   </div></section>`;
