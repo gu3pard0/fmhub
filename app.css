@@ -117,3 +117,9 @@ td.sc{min-width:180px}
 svg.g .gl{font:700 11px 'JetBrains Mono';fill:#fff}
 svg.g .gv{font:600 10px 'JetBrains Mono';fill:var(--ink)}
 svg.g .ge{font:500 9px 'JetBrains Mono';fill:var(--mut)}
+
+/* ---------- Próximo partido y promociones de la cantera ---------- */
+.prox{margin:0 0 8px;padding:8px 10px;border-radius:10px;background:color-mix(in srgb,var(--goldbg) 55%,transparent);font-size:13px}
+details.cant{margin:0 0 10px;font-size:13px}
+details.cant summary{cursor:pointer;color:var(--mut);font-weight:600}
+details.cant p{margin:6px 0 0;line-height:1.7}

@@ -261,20 +261,30 @@ function motor() {
   const MET_RIVAL = {'puntos por partido': ps => ps.reduce((s, p) => s + PUNTOS[r90(p)], 0) / ps.length, 'victorias': ps => ps.filter(p => r90(p) === 'W').length,
     'derrotas': ps => ps.filter(p => r90(p) === 'L').length, 'goles a favor por partido': ps => ps.reduce((s, p) => s + p.gf, 0) / ps.length,
     'goles en contra por partido': ps => ps.reduce((s, p) => s + p.gc, 0) / ps.length};
-  const con3 = Object.entries(rivales).filter(([, ps]) => ps.length >= 3);
+  // agrupaciones: cualquier dato del partido que reparta los partidos en grupos (mínimo de partidos por grupo)
+  const AGRUP = {
+    rival: {clave: p => p.rival, min: 3, frase: r => `ante el ${r}`, bien: 'Su rival favorito.', mal: 'Bestia negra.', grupo: 'rivales con 3 duelos o más'},
+    formacion: {clave: p => p.formacion, min: 8, frase: r => `jugando con el ${r}`, bien: 'Su sistema talismán.', mal: 'El sistema que peor le va.', grupo: 'formaciones propias con 8 partidos o más'},
+    formacion_rival: {clave: p => p.formacion_rival, min: 8, frase: r => `contra rivales que forman con el ${r}`, bien: 'El sistema rival que mejor se le da.', mal: 'El sistema rival que más le cuesta.', grupo: 'formaciones rivales con 8 partidos o más'},
+  };
+  for (const [dim, A] of Object.entries(AGRUP)) {
+  const grupos = {};
+  for (const p of ofi) { const k = A.clave(p); if (k) (grupos[k] ||= []).push(p); }
+  const con3 = Object.entries(grupos).filter(([, ps]) => ps.length >= A.min);
   for (const [nombre, f] of Object.entries(MET_RIVAL)) {
     const items = con3.map(([r, ps]) => ({r, ps, v: f(ps)}));
-    if (items.length < 5) continue;
+    if (items.length < (dim === 'rival' ? 5 : 3)) continue;
     const decs = nombre.includes('por partido') ? 2 : 0;
     for (const sentido of decs ? [1, -1] : [1]) {
       const ord = [...items].sort((a, b) => sentido * (b.v - a.v) || b.ps.length - a.ps.length);
       const x = ord[0];
       if (x.v === ord[1].v && x.ps.length === ord[1].ps.length) continue;
       const bueno = (nombre.includes('contra') || nombre === 'derrotas') ? sentido < 0 : sentido > 0;
-      add({n: fmtValor(x.v, decs), hecho: `${nombre.charAt(0).toUpperCase() + nombre.slice(1)} del ${club} ante el ${x.r} en ${x.ps.length} partidos oficiales.`,
-           fin: bueno ? 'Su rival favorito.' : 'Bestia negra.', ctx: `El ${sentido > 0 ? 'mayor' : 'menor'} entre ${items.length} rivales con 3 duelos o más. Luego: ${ord.slice(1, 3).map(y => `${y.r} (${fmtValor(y.v, decs)})`).join(', ')}.`,
-           g: gCasillas(x.ps), t: null, tipo: 'Rivales', fam: `ri-${bueno ? 'b' : 'm'}`, score: puntua(Math.abs(x.v - media(items.map(y => y.v))) / desv(items.map(y => y.v)), items.length, null, 1.05)});
+      add({n: fmtValor(x.v, decs), hecho: `${nombre.charAt(0).toUpperCase() + nombre.slice(1)} del ${club} ${A.frase(x.r)} en ${x.ps.length} partidos oficiales.`,
+           fin: bueno ? A.bien : A.mal, ctx: `El ${sentido > 0 ? 'mayor' : 'menor'} entre ${items.length} ${A.grupo}. Luego: ${ord.slice(1, 3).map(y => `${y.r} (${fmtValor(y.v, decs)})`).join(', ')}.`,
+           g: gCasillas(x.ps.slice(-40)), t: null, tipo: dim === 'rival' ? 'Rivales' : 'Formaciones', fam: `ri-${dim}-${bueno ? 'b' : 'm'}`, score: puntua(Math.abs(x.v - media(items.map(y => y.v))) / desv(items.map(y => y.v)), items.length, null, 1.05)});
     }
+  }
   }
   // primicias ante un rival en la última temporada: primera victoria o primera derrota tras varios duelos
   for (const [r, ps] of Object.entries(rivales)) {
@@ -344,6 +354,33 @@ function motor() {
   extremos(saltos, {fam: 'salto', campo: 'salto', grupo: 'de un atributo entre dos capturas', sentidos: [1, -1], sinT: true, minimo: 30, empates: true,
     que: x => `${x.v > 0 ? 'Subida' : 'Bajada'} de ${NOMBRE_ATR[x.k] || x.k} de ${x.sujeto} de una captura a la siguiente (${x.de} → ${x.a})`, peso: .5});
 
+  // ===== 10 bis. Cantera: jugadores de las promociones que han debutado con el primer equipo =====
+  const promos = {};
+  for (const t of D.traspasos.filter(x => x.tipo === 'cantera')) (promos[t.fecha] ||= []).push(t);
+  const fechasPromo = Object.keys(promos).sort();
+  if (fechasPromo.length) {
+    const debut = t => D.historial.filter(h => h.iu === t.iu && h.club === club && (h.tipo === 'total' || h.tipo === 'liga') && h.partidos > 0)
+      .sort((a, b) => a.temporada.localeCompare(b.temporada))[0];
+    const porPromo = fechasPromo.map(f => ({f, ts: promos[f], deb: promos[f].map(t => ({t, h: debut(t)})).filter(x => x.h)}));
+    const total = porPromo.reduce((s2, x) => s2 + x.deb.length, 0);
+    const todos = porPromo.reduce((s2, x) => s2 + x.ts.length, 0);
+    if (total) {
+      const ult = [...porPromo].reverse().find(x => x.deb.length);
+      const pj = x => x.deb.reduce((s2, d) => s2 + D.historial.filter(h => h.iu === d.t.iu && h.club === club && h.tipo === 'total').reduce((a, h) => a + (h.partidos || 0), 0), 0);
+      add({n: total, hecho: `Canteranos de ${todos} promovidos en ${fechasPromo.length} promociones han debutado con el primer equipo del ${club}.`,
+           fin: 'Hechos en casa.', ctx: porPromo.map(x => `${fecha(x.f)}: ${x.deb.length} de ${x.ts.length}${x.deb.length ? ' (' + x.deb.map(d => d.t.jugador).slice(0, 4).join(', ') + ')' : ''}`).join(' · '),
+           g: gBarras(porPromo.map(x => x.deb.length), porPromo.map(x => x.f.slice(0, 4)), porPromo.indexOf(ult)), t: ult.deb[0].h.temporada, tipo: 'Cantera', fam: 'cantera',
+           score: puntua(2.5, 30, ult.deb[0].h.temporada, 1.2)});
+      const top = porPromo.flatMap(x => x.deb).map(d => ({sujeto: d.t.jugador, v: D.historial.filter(h => h.iu === d.t.iu && h.club === club && h.tipo === 'total').reduce((a, h) => a + (h.partidos || 0), 0)})).filter(x => x.v);
+      if (top.length >= 2) {
+        const o = top.sort((a, b) => b.v - a.v);
+        add({n: o[0].v, hecho: `Partidos oficiales de ${o[0].sujeto} con el ${club}, el canterano que más ha jugado con Varela.`, fin: 'El orgullo de la cantera.',
+             ctx: `Le siguen ${o.slice(1, 3).map(x => `${x.sujeto} (${x.v})`).join(' y ')}.`, g: gBarras(o.slice(0, 5).map(x => x.v), o.slice(0, 5).map(x => corto(x.sujeto)), 0),
+             t: null, tipo: 'Cantera', fam: 'cantera-top', score: puntua(2, 30, null, 1.1)});
+      }
+    }
+  }
+
   // ===== 11. Finanzas (meses) y traspasos =====
   const CAMPOS_F = Object.keys(D.finanzas[0] || {}).filter(k => k.endsWith('_eur') && !k.startsWith('presupuesto') && !k.startsWith('masa'));
   for (const campo of CAMPOS_F) {
@@ -352,7 +389,7 @@ function motor() {
     extremos(items, {fam: 'fin-' + campo, campo, grupo: `de un mes en ${items.length} meses`, sentidos: [1, -1], minimo: 12, sinT: true,
       que: x => `Euros ${nom} del ${club} en ${x.sujeto}`, peso: .7});
   }
-  const tras = D.traspasos.filter(t => t.precio_eur > 0);
+  const tras = D.traspasos.filter(t => t.precio_eur > 0 && t.tipo !== 'cantera');
   for (const [entra, que] of [[1, 'Euros pagó el'], [0, 'Euros ingresó el']]) {
     const items = tras.filter(t => !!t.entra === !!entra).map(t => ({v: t.precio_eur, sujeto: t.jugador, t: (() => { const a = +t.fecha.slice(0, 4), m = +t.fecha.slice(5, 7), i = m >= 7 ? a : a - 1; return `${i}/${String(i + 1).slice(2)}`; })(), t0: t}));
     if (items.length >= 2) extremos(items, {fam: 'tr' + entra, campo: 'precio', grupo: `de la era Varela`, minimo: 2,
@@ -384,13 +421,18 @@ function motor() {
 
   // ===== selección: las mejores, como mucho una por métrica y sentido =====
   const vistas = new Set(), lista = [];
-  for (const c of out.sort((a, b) => b.score - a.score)) {
+  // variedad: primero la mejor de cada tipo, luego el resto por puntuación
+  const orden = out.sort((a, b) => b.score - a.score);
+  const tipos = new Set();
+  const primeras = orden.filter(c => !tipos.has(c.tipo) && tipos.add(c.tipo));
+  for (const c of [...primeras, ...orden]) {
     const firma = c.n + '|' + (c.t || '') + '|' + c.hecho.split(' de ').slice(1).join(' de ').slice(0, 50);
     if (vistas.has(c.fam) || vistas.has(firma) || vistas.has(c.hecho)) continue;
     vistas.add(c.fam); vistas.add(firma); vistas.add(c.hecho);
     lista.push(c);
   }
-  return {lista: lista.slice(0, 60), ultima, candidatas: out.length};
+  // se cortan las 60 primeras (las mejores de cada tipo van delante) y se ordenan por puntuación
+  return {lista: lista.slice(0, 60).sort((a, b) => b.score - a.score), ultima, candidatas: out.length};
 }
 
 // ---------------------------------------------------------------- vista

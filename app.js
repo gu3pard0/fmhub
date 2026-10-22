@@ -31,6 +31,8 @@ function preparar() {
   const club = D.club.nombre;
   IDX.club = club;
   // Partidos desde el punto de vista del club
+  const detalle = {};
+  for (const d of D.detalle_partidos || []) detalle[d.fecha] = d;
   IDX.partidos = D.partidos.map(p => {
     const casa = !!p.en_casa;
     const gf = casa ? p.goles_local : p.goles_visitante, gc = casa ? p.goles_visitante : p.goles_local;
@@ -41,9 +43,13 @@ function preparar() {
       res = pf > pc ? 'W' : 'L';
       pen = ` (${pf}-${pc} pen.)`;
     }
-    return {...p, casa, rival: casa ? p.visitante : p.local, gf, gc, res, pen,
-            oficial: p.competicion !== 'Amistoso', clave: p.fecha + '|' + p.local + '|' + p.visitante};
+    const det = detalle[p.fecha] || {};
+    return {...p, casa, rival: casa ? p.visitante : p.local, gf, gc, res, pen, formacion: det.formacion || '', formacion_rival: det.formacion_rival || '',
+            hora: det.hora || '', oficial: p.competicion !== 'Amistoso', clave: p.fecha + '|' + p.local + '|' + p.visitante};
   });
+  // traspasos de verdad y promociones de la cantera (FM las apunta como altas sin club de origen)
+  IDX.traspasos = D.traspasos.filter(t => t.tipo !== 'cantera');
+  IDX.cantera = D.traspasos.filter(t => t.tipo === 'cantera');
   IDX.golesPorPartido = {};
   for (const g of D.goles) (IDX.golesPorPartido[g.fecha + '|' + g.local + '|' + g.visitante] ||= []).push(g);
   // FM guarda también los penaltis de la tanda como goles (al 90 o 120): de cada equipo solo cuentan
@@ -151,7 +157,11 @@ V.inicio = () => {
   const ult = IDX.partidos.slice(-6).reverse();
   const nov = novedades().filter(n => V.inicio.moral || n.tag !== 'Moral');
   const k = cifrasClave();
-  const tras = [...D.traspasos].slice(-6).reverse();
+  const tras = [...IDX.traspasos].slice(-6).reverse();
+  const ultJugado = IDX.partidos.length ? IDX.partidos[IDX.partidos.length - 1].fecha : '';
+  const prox = (D.proximos || []).find(x => x.fecha > ultJugado);
+  const proxHtml = prox ? `<p class="prox">Próximo: ${prox.en_casa === 0 ? 'fuera ante el' : 'en casa ante el'} <b>${esc(prox.rival)}</b> · ${fecha(prox.fecha)}${prox.hora ? ' ' + esc(prox.hora) : ''} · ${esc(prox.competicion || '')}</p>`
+    : '<p class="prox mini">Próximo partido: exporta el calendario de esta temporada desde FM (Ctrl+P en la pantalla de calendario) y aparecerá aquí.</p>';
   const qr = (window.FMHUB_ESTATICO || window.FMHUB_PUBLICADO) ? '' : `
     <div class="card"><h4 style="margin-top:0">Abrir en el móvil</h4>
       <div class="qr"><img src="qr.svg" alt="Código QR de la web"><div>
@@ -177,7 +187,7 @@ V.inicio = () => {
       <div class="card"><h4 style="margin-top:0">Novedades</h4>
         <div class="filters"><button class="chip" data-nm="1" aria-pressed="${!!V.inicio.moral}">Cambios de moral</button></div>
         ${nov.length ? `<ul class="feed">${nov.slice(0, 24).map(n => `<li><time>${esc(n.cuando)}</time><span class="tag ${n.cls}">${n.tag}</span><span>${n.t}</span></li>`).join('')}</ul>` : '<p class="vacio">Sin cambios recientes.</p>'}</div>
-      <div class="card"><h4 style="margin-top:0">Últimos partidos</h4>${ult.map(p => `<div class="tri"><span class="d">${fecha(p.fecha)}</span><span><span class="ha">${p.casa ? 'C' : 'F'}</span>${esc(p.rival)} <span class="mini">${esc(p.competicion || '')}</span></span>${pillRes(p)}</div>`).join('')}
+      <div class="card"><h4 style="margin-top:0">Últimos partidos</h4>${proxHtml}${ult.map(p => `<div class="tri"><span class="d">${fecha(p.fecha)}</span><span><span class="ha">${p.casa ? 'C' : 'F'}</span>${esc(p.rival)} <span class="mini">${esc(p.competicion || '')}</span></span>${pillRes(p)}</div>`).join('')}
         <h4>Últimos traspasos</h4>${tras.map(t => `<div class="tri"><span class="d">${fecha(t.fecha)}</span><span class="${t.entra ? 'in' : 'out'}">${t.entra ? '↘' : '↗'} ${jug(t.iu, t.jugador)} <span class="mini">${esc(t.otro_club || 'libre')}</span></span><span class="f">${t.cesion ? 'cesión' : eur(t.precio_eur)}</span></div>`).join('')}</div>
     </div>
     <div class="cols2" style="margin-top:14px">${qr}${exp}
@@ -207,7 +217,11 @@ function novedades() {
   }
   for (const r of D.partido_jugador) if (!r.varios && r.goles)
     out.push({f: r.fecha, juego: true, tag: 'Gol', cls: 'g', t: `${jug(r.iu, r.jugador)} marcó${r.goles > 1 ? ' ' + r.goles + ' goles' : ''} ante el ${esc(r.local === IDX.club ? r.visitante : r.local)}`});
-  for (const t of D.traspasos.slice(-12)) out.push({f: t.fecha, juego: true, tag: t.entra ? 'Llegada' : 'Salida', cls: t.entra ? 'g' : 'r',
+  const promo = {};
+  for (const t of IDX.cantera) (promo[t.fecha] ||= []).push(t);
+  for (const [f, ts] of Object.entries(promo).slice(-2)) out.push({f, juego: true, tag: 'Cantera', cls: 'g',
+    t: `${ts.length} canteranos suben del filial: ${ts.map(t => jug(t.iu, t.jugador)).join(', ')}`});
+  for (const t of IDX.traspasos.slice(-12)) out.push({f: t.fecha, juego: true, tag: t.entra ? 'Llegada' : 'Salida', cls: t.entra ? 'g' : 'r',
     t: `${jug(t.iu, t.jugador)} ${t.entra ? 'llega del' : 'se va al'} ${esc(t.otro_club || 'mercado libre')}${t.cesion ? ' (cesión)' : t.precio_eur ? ' por ' + eur(t.precio_eur) : ''}`});
   for (const n of out) n.cuando = n.juego ? fecha(n.f.slice(0, 10)) : cuando(n.f);
   // primero lo leído más recientemente; lo de la partida va junto a la última lectura, en orden de fecha de juego
@@ -293,12 +307,15 @@ V.partidos = () => {
   const comps = [...new Set(ps.map(p => p.competicion))];
   const comp = V.partidos.c && comps.includes(V.partidos.c) ? V.partidos.c : null;
   if (comp) ps = ps.filter(p => p.competicion === comp);
+  const resF = V.partidos.r || null;
+  if (resF) ps = ps.filter(p => p.res === resF);
   const of = ps.filter(p => p.oficial);
   const r = k => of.filter(p => p.res === k).length;
   const tabs = IDX.temporadas.map(t => `<button class="tab" data-pt="${t}" aria-selected="${t === temp}">${t}<small>${IDX.partidos.filter(p => p.temporada === t && p.oficial).length} oficiales</small></button>`).join('');
   return `<section><div class="wrap"><h2 data-n="03">Partidos</h2>
     <p class="sub">Todos los partidos con resultado, competición y goleadores con minuto (p = penalti, pp = en propia puerta).</p>
     <div class="tabs">${tabs}</div>
+    <div class="filters">${[['W', 'Victorias'], ['D', 'Empates'], ['L', 'Derrotas']].map(([k, t]) => `<button class="chip" data-pr="${k}" aria-pressed="${resF === k}">${t}</button>`).join('')}</div>
     <div class="filters"><button class="chip" data-pa="1" aria-pressed="${amis}">Con amistosos</button>
       ${comps.map(c => `<button class="chip" data-pc="${esc(c)}" aria-pressed="${comp === c}">${esc(c)}</button>`).join('')}</div>
     <p class="meta"><span><b>${of.length}</b> oficiales</span><span><b>${r('W')}</b> V</span><span><b>${r('D')}</b> E</span><span><b>${r('L')}</b> D</span>
@@ -309,6 +326,7 @@ V.partidos = () => {
       {k: 'res', t: 'Res.', h: p => pillRes(p) + esc(p.pen)},
       {k: 'espectadores', t: 'Público', n: 1, h: p => num(p.espectadores)},
       {k: 'gol', t: 'Goleadores', cls: 'sc', h: golesTexto},
+      {k: 'formacion', t: 'Formación', cls: 'cmp', h: p => esc(p.formacion) + (p.formacion_rival ? `<br><span class="mini">rival: ${esc(p.formacion_rival)}</span>` : '')},
     ], ps.map(p => ({...p, _cls: 'r' + p.res})), {k: 'fecha', d: 1})}
   </div></section>`;
 };
@@ -323,6 +341,10 @@ V.temporadas = () => {
   }
   const top = Object.values(gol).sort((a, b) => b.g - a.g).slice(0, 10);
   const max = top[0]?.g || 1;
+  const forms = {};
+  for (const p of of) if (p.formacion) { const f = (forms[p.formacion] ||= {f: p.formacion, j: 0, v: 0, pts: 0}); f.j++; f.v += p.res === 'W'; f.pts += {W: 3, D: 1, L: 0}[p.gf > p.gc ? 'W' : p.gf < p.gc ? 'L' : 'D']; }
+  const fl = Object.values(forms).sort((a, b) => b.j - a.j);
+  const formHtml = fl.length ? `<div class="card" style="margin-top:14px"><h4 style="margin-top:0">Formaciones (calendario exportado)</h4>${fl.map(f => `<div class="tri"><span class="d">${f.j} PJ</span><span>${esc(f.f)}</span><span class="f">${f.v} V · ${(f.pts / f.j).toFixed(2)} pts/PJ</span></div>`).join('')}</div>` : '';
   const tabs = IDX.temporadas.map(t => `<button class="tab" data-tt="${t}" aria-selected="${t === temp}">${t}</button>`).join('');
   return `<section><div class="wrap"><h2 data-n="04">Temporadas</h2>
     <p class="sub">Clasificación final (o la última que FM tenía cargada) y máximos goleadores en partidos oficiales.</p>
@@ -332,22 +354,25 @@ V.temporadas = () => {
         {k: 'pos', t: '#', n: 1}, {k: 'club', t: 'Equipo'}, {k: 'j', t: 'PJ', n: 1}, {k: 'g', t: 'G', n: 1}, {k: 'e', t: 'E', n: 1},
         {k: 'p', t: 'P', n: 1}, {k: 'gf', t: 'GF', n: 1}, {k: 'gc', t: 'GC', n: 1}, {k: 'pts', t: 'Pts', n: 1}],
         cl.map(c => ({...c, _cls: c.club === IDX.club ? 'propio' : ''})), {k: 'pos', d: 1}) : '<p class="vacio">No hay clasificación guardada de esta temporada (se guarda al abrir la tabla en FM).</p>'}</div>
-      <div class="card"><h4 style="margin-top:0">Goleadores</h4><div class="bars">${top.map(t => `<div class="row"><span>${jug(t.iu, t.n)}</span><div class="bg"><div class="fg g" style="width:${100 * t.g / max}%"></div></div><b>${t.g}</b></div>`).join('') || '<p class="vacio">Sin goles.</p>'}</div></div>
+      <div class="card"><h4 style="margin-top:0">Goleadores</h4><div class="bars">${top.map(t => `<div class="row"><span>${jug(t.iu, t.n)}</span><div class="bg"><div class="fg g" style="width:${100 * t.g / max}%"></div></div><b>${t.g}</b></div>`).join('') || '<p class="vacio">Sin goles.</p>'}</div>${formHtml}</div>
     </div>
   </div></section>`;
 };
 
 V.traspasos = () => {
   const porT = {};
-  for (const t of D.traspasos) {
-    const a = +t.fecha.slice(0, 4), m = +t.fecha.slice(5, 7), ini = m >= 7 ? a : a - 1;
-    (porT[`${ini}/${String(ini + 1).slice(2)}`] ||= []).push(t);
-  }
+  const tempDe = f => { const a = +f.slice(0, 4), m = +f.slice(5, 7), ini = m >= 7 ? a : a - 1; return `${ini}/${String(ini + 1).slice(2)}`; };
+  for (const t of IDX.traspasos) (porT[tempDe(t.fecha)] ||= []).push(t);
+  const cant = {};
+  for (const t of IDX.cantera) (cant[tempDe(t.fecha)] ||= []).push(t);
+  const gasto = (l, e) => l.filter(t => !!t.entra === e && !t.cesion).reduce((s, t) => s + (t.precio_eur || 0), 0);
   const bloque = (lista, entra) => lista.filter(t => !!t.entra === entra).map(t =>
-    `<div class="tri"><span class="d">${fecha(t.fecha)}</span><span>${jug(t.iu, t.jugador)} <span class="mini">${entra ? 'de' : 'a'} ${esc(t.otro_club || 'agente libre')}</span></span><span class="f ${entra ? 'out' : 'in'}">${t.cesion ? 'cesión' : t.precio_eur ? eur(t.precio_eur) : 'libre'}</span></div>`).join('') || '<p class="vacio">Ninguno.</p>';
+    `<div class="tri"><span class="d">${fecha(t.fecha)}</span><span>${jug(t.iu, t.jugador)} <span class="mini">${entra ? 'de' : 'a'} ${esc(t.otro_club || 'agente libre')}${t.origen === 'varela.html' ? ' · de varela.html' : ''}</span></span><span class="f ${entra ? 'out' : 'in'}">${t.cesion ? 'cesión' : t.precio_eur ? eur(t.precio_eur) : 'libre'}</span></div>`).join('') || '<p class="vacio">Ninguno.</p>';
   return `<section><div class="wrap"><h2 data-n="05">Traspasos</h2>
-    <p class="sub">Fichajes y salidas por temporada (sin cuerpo técnico). Importes como en pantalla.</p>
-    ${Object.keys(porT).sort().reverse().map(t => `<h4>${t}</h4><div class="tr2"><div class="card"><h4 style="margin-top:0" class="in">Llegan</h4>${bloque(porT[t], true)}</div><div class="card"><h4 style="margin-top:0" class="out">Salen</h4>${bloque(porT[t], false)}</div></div>`).join('')}
+    <p class="sub">Fichajes y salidas por temporada, como en el historial de traspasos de FM (sin cuerpo técnico). Importes como en pantalla. Las promociones de la cantera no son fichajes y van aparte. Los movimientos marcados «de varela.html» ya no están en la memoria de FM y salen de tu varela.html.</p>
+    ${[...new Set([...Object.keys(porT), ...Object.keys(cant)])].sort().reverse().map(t => { porT[t] ||= []; return `<h4>${t} <span class="mini">· ${porT[t].filter(x => x.entra).length} llegadas (${eur(gasto(porT[t], true))}) · ${porT[t].filter(x => !x.entra).length} salidas (${eur(gasto(porT[t], false))})</span></h4>
+      ${cant[t] ? `<details class="cant"><summary>Promoción de la cantera: ${cant[t].length} jugadores (${fecha(cant[t][0].fecha)})</summary><p>${cant[t].map(x => jug(x.iu, x.jugador)).join(' · ')}</p></details>` : ''}
+      <div class="tr2"><div class="card"><h4 style="margin-top:0" class="in">Llegan</h4>${bloque(porT[t], true)}</div><div class="card"><h4 style="margin-top:0" class="out">Salen</h4>${bloque(porT[t], false)}</div></div>`; }).join('')}
   </div></section>`;
 };
 
@@ -383,22 +408,40 @@ V.finanzas = () => {
 
 V.historial = () => {
   const q = (V.historial.q || '').toLowerCase();
+  const dart = V.historial.dart ?? true, comp = V.historial.comp || 'total';
+  // por jugador y temporada: fila «total» (todas las oficiales) o, si FM solo dio la de liga, la de liga
+  const porJT = {};
+  for (const h of D.historial) {
+    if (h.tipo !== 'liga' && h.tipo !== 'total') continue;
+    if (dart && h.club !== IDX.club) continue;
+    const k = h.iu + '|' + h.temporada + '|' + h.orden;
+    (porJT[k] ||= {})[h.tipo] = h;
+  }
   const porJ = {};
-  for (const h of D.historial) if (h.tipo === 'liga' || h.tipo === 'total') {
-    const j = (porJ[h.iu] ||= {iu: h.iu, n: h.jugador, temps: new Set(), dartford: new Set(), pj: 0, g: 0});
+  for (const r of Object.values(porJT)) {
+    const h = comp === 'liga' ? r.liga : (r.total || r.liga);
+    if (!h) continue;
+    const j = (porJ[h.iu] ||= {iu: h.iu, n: h.jugador, temps: new Set(), pj: 0, tit: 0, min: 0, g: 0, a: 0, mvp: 0, ama: 0, nsum: 0, nj: 0});
     j.temps.add(h.temporada);
-    if (h.club === IDX.club) j.dartford.add(h.temporada);
-    if (h.tipo === 'liga') { j.pj += h.partidos || 0; j.g += h.goles || 0; }
+    j.pj += h.partidos || 0; j.tit += h.titular || 0; j.min += h.minutos || 0; j.g += h.goles || 0; j.a += h.asistencias || 0; j.mvp += h.mvp || 0; j.ama += h.amarillas || 0;
+    if (h.nota_media && h.partidos) { j.nsum += h.nota_media * h.partidos; j.nj += h.partidos; }
   }
   const actuales = new Set(D.plantilla.map(p => p.iu));
-  const filas = Object.values(porJ).filter(j => !q || j.n.toLowerCase().includes(q)).map(j => ({...j, est: actuales.has(j.iu) ? 'en la plantilla' : 'exjugador', nt: j.temps.size, nd: j.dartford.size}));
+  const filas = Object.values(porJ).filter(j => !q || (j.n || '').toLowerCase().includes(q))
+    .map(j => ({...j, est: actuales.has(j.iu) ? 'en la plantilla' : 'exjugador', nt: j.temps.size, nota: j.nj ? j.nsum / j.nj : null, gpp: j.pj ? j.g / j.pj : null}));
   const ret = {};
   for (const r of D.retirados) (ret[r.jugador] ||= []).push(r);
+  const chip = (attr, k, t, on) => `<button class="chip" data-${attr}="${k}" aria-pressed="${on}">${t}</button>`;
   return `<section><div class="wrap"><h2 data-n="07">Historial</h2>
-    <p class="sub">Carrera de los jugadores actuales y de los que pasaron por el club (partidos y goles de liga, como la tabla de carrera de FM). Toca un nombre para ver todas sus temporadas.</p>
+    <p class="sub">Carrera de los jugadores actuales y de los que pasaron por el club, sacada de la tabla de carrera de FM. Elige si contar solo lo hecho con el ${esc(IDX.club)} o toda su carrera, y si todas las competiciones oficiales o solo la liga. Toca un nombre para ver todas sus temporadas.</p>
     <input class="search" id="buscarH" placeholder="Buscar jugador" value="${esc(V.historial.q || '')}">
-    ${tabla('hist', [{k: 'n', t: 'Jugador', h: j => jug(j.iu, j.n)}, {k: 'est', t: 'Estado'}, {k: 'nd', t: `Temp. ${IDX.club}`, n: 1},
-      {k: 'nt', t: 'Temporadas', n: 1}, {k: 'pj', t: 'PJ liga', n: 1}, {k: 'g', t: 'Goles liga', n: 1}], filas, {k: 'nd', d: -1})}
+    <div class="filters">${chip('hd', 'dart', 'Solo con el ' + esc(IDX.club), dart)}${chip('hd', 'todo', 'Toda la carrera', !dart)}</div>
+    <div class="filters">${chip('hc', 'total', 'Partidos oficiales', comp === 'total')}${chip('hc', 'liga', 'Solo liga', comp === 'liga')}</div>
+    ${tabla('hist', [{k: 'n', t: 'Jugador', h: j => jug(j.iu, j.n)}, {k: 'est', t: 'Estado'}, {k: 'nt', t: 'Temp.', n: 1},
+      {k: 'pj', t: 'PJ', n: 1}, {k: 'tit', t: 'Tit', n: 1}, {k: 'min', t: 'Min', n: 1, h: j => num(j.min)}, {k: 'g', t: 'Goles', n: 1}, {k: 'a', t: 'Asis', n: 1},
+      {k: 'gpp', t: 'Gol/PJ', n: 1, h: j => j.gpp === null ? '–' : j.gpp.toFixed(2)}, {k: 'nota', t: 'Nota', n: 1, h: j => j.nota ? j.nota.toFixed(2) : '–'},
+      {k: 'mvp', t: 'MVP', n: 1}, {k: 'ama', t: 'Am', n: 1}], filas, {k: 'pj', d: -1})}
+    <p class="mini">${comp === 'total' ? 'En las temporadas en que FM solo da la fila de liga (sobre todo las antiguas, copiadas de pantalla), se cuenta la liga.' : ''} Nota media ponderada por partidos.</p>
     <h4>Retirados</h4><p class="mini">FM solo conserva su resumen por etapas (todas las competiciones).</p>
     <div class="cols2">${Object.entries(ret).map(([n, rs]) => `<div class="card"><h4 style="margin-top:0">${esc(n)}</h4>${rs.map(r => `<div class="tri"><span class="d">${esc(r.etapa)}</span><span>${esc(r.club)}</span><span class="f">${num(r.partidos)} PJ · ${num(r.goles)} G</span></div>`).join('')}</div>`).join('')}</div>
   </div></section>`;
@@ -426,7 +469,9 @@ V.jugador = iu => {
     {k: 'nota_media', t: 'Nota', n: 1, h: r => r.nota_media ? r.nota_media.toFixed(2) : '–'}, {k: 'xg', t: 'xG', n: 1, h: r => J(r.detalle).xg ?? '–'}],
     tipos.filter(t => s[t]).map(t => s[t])) : '<p class="vacio">Sin estadísticas de esta temporada.</p>';
   const vistas = {}, filasC = [];
+  const soloDart = !!V.jugador.dart;
   for (const h of IDX.historial[iu] || []) {
+    if (soloDart && h.club !== IDX.club) continue;
     const k = h.temporada + '|' + h.orden;
     if (!vistas[k]) { vistas[k] = {temporada: h.temporada, orden: h.orden, club: h.club, info: h.info, division: h.division, origen: h.origen}; filasC.push(vistas[k]); }
     vistas[k][h.tipo] = h;
@@ -453,7 +498,10 @@ V.jugador = iu => {
       <div class="card"><h4 style="margin-top:0">Nota media en las exportaciones</h4>${mini((IDX.evol[iu] || []).filter(e => e.nota_media).map(e => e.nota_media), v => Number(v).toFixed(2))}<p class="mini">Nota media de la temporada en cada exportación de plantilla (vuelve a empezar cada temporada).</p></div></div>` : ''}
     <h4>Temporada ${esc(IDX.temporadaActual)}</h4>${temporada}
     <h4>Partido a partido</h4>${partidosJ}
-    <h4>Carrera</h4>${tablaC}
+    <h4>Carrera</h4>
+    <div class="filters"><button class="chip" data-jc="1" aria-pressed="${soloDart}">Solo con el ${esc(IDX.club)}</button></div>
+    ${filasC.length ? `<p class="meta">${(() => { const t = filasC.reduce((a, r) => { const h = r.total || r.liga; if (h) { a.pj += h.partidos || 0; a.g += h.goles || 0; a.as += h.asistencias || 0; a.min += h.minutos || 0; } return a; }, {pj: 0, g: 0, as: 0, min: 0}); return `<span><b>${filasC.length}</b> etapas</span><span><b>${num(t.pj)}</b> PJ</span><span><b>${num(t.g)}</b> goles</span><span><b>${num(t.as)}</b> asistencias</span><span><b>${num(t.min)}</b> min</span><span>${soloDart ? 'con el ' + esc(IDX.club) : 'en toda su carrera'} (oficiales, o liga si FM no da más)</span>`; })()}</p>` : ''}
+    ${tablaC}
   </div></section>`;
 };
 
@@ -499,6 +547,10 @@ document.addEventListener('click', ev => {
   else if (ds.nm) V.inicio.moral = !V.inicio.moral;
   else if (ds.pt) { V.partidos.t = ds.pt; V.partidos.c = null; }
   else if (ds.pa) V.partidos.amis = !V.partidos.amis;
+  else if (ds.pr) V.partidos.r = V.partidos.r === ds.pr ? null : ds.pr;
+  else if (ds.hd) V.historial.dart = ds.hd === 'dart';
+  else if (ds.hc) V.historial.comp = ds.hc;
+  else if (ds.jc) V.jugador.dart = !V.jugador.dart;
   else if (ds.pc !== undefined) V.partidos.c = V.partidos.c === ds.pc ? null : ds.pc;
   else if (ds.tt) V.temporadas.t = ds.tt;
   else return;
