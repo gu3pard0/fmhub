@@ -671,28 +671,76 @@ const HIST = (() => {
     const porAño = {};
     for (const f of filas) if (f.fin) porAño[f.fin.getFullYear()] = (porAño[f.fin.getFullYear()] || 0) + 1;
     const caros = [...filas].sort((a, b) => b.sueldo - a.sueldo).slice(0, 4);
+    const renov = renovaciones(filas, fj, mSueldo, mNota, mMin, calcPres - calcMasa);
     return `<section><div class="wrap"><h2 data-n="11">Plan de plantilla</h2>
       <p class="sub">Primero quién podría irse, después qué perfiles hacen falta y a quién dar más minutos. Lo calcula FM Hub con números y atributos visibles (rendimiento de ${esc(prev.t)}, sueldos, contratos y valor). No ve lesiones, moral ni tu táctica, así que la decisión final es tuya. Los fichajes concretos los buscas tú: aquí solo van perfiles.</p>
       <div class="card"><h4 style="margin:0 0 6px;color:var(--ink);font:800 17px Archivo;text-transform:none;letter-spacing:0">Cómo se mide</h4><ul style="margin:6px 0 0;padding-left:18px;font-size:13.5px">
         <li><b>Pase</b> = media de pase, control, técnica, decisiones, visión y trabajo en equipo. <b>Presión</b> = agresividad, anticipación, sacrificio, resistencia, determinación y trabajo en equipo. <b>Ritmo</b> = aceleración y velocidad.</li>
         <li><b>Salida:</b> cobra al menos 1,4 veces la mediana (${eur(mSueldo)}) y rinde por debajo de la mediana del equipo (${d2(mNota)}). <b>Contrato:</b> acaba en menos de un año. <b>Más minutos:</b> rinde por encima de la mediana y juega menos que la mayoría. <b>Revisar:</b> defensa con ritmo de 8,5 o menos.</li></ul></div>
       <h4>1 · Quiénes podrían irse</h4><div class="pgrid">${sells.join('') || '<p class="vacio">Nadie cumple los criterios de salida.</p>'}</div>
-      <h4>2 · Qué perfiles hacen falta</h4><div class="pgrid">${need.join('')}</div>
-      <h4>3 · Cuentas: cuánto se libera</h4><div class="card"><p class="sub" style="margin:0 0 10px">Activa o quita salidas y ajusta la masa salarial y el presupuesto si los cambias en FM.</p>
+      <h4>2 · A quién renovarías</h4>${renov}
+      <h4>3 · Qué perfiles hacen falta</h4><div class="pgrid">${need.join('')}</div>
+      <h4>4 · Cuentas: cuánto se libera</h4><div class="card"><p class="sub" style="margin:0 0 10px">Activa o quita salidas y ajusta la masa salarial y el presupuesto si los cambias en FM.</p>
         <div class="calc">${info.map(x => `<button class="chip" data-hcalc="${x.iu}" aria-pressed="${calcSel.has(x.iu)}">${x.k === 'fin' ? 'No renovar' : 'Vender'} · ${esc(x.n)} · ${miles(x.sueldo)} €</button>`).join('') || '<span class="mini">No hay salidas propuestas.</span>'}</div>
         <div style="display:flex;gap:14px;flex-wrap:wrap;margin:10px 0;font-size:13px"><label>Masa salarial (€/mes) <input id="hcM" type="number" value="${calcMasa}" style="width:110px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink)"></label><label>Presupuesto salarial (€/mes) <input id="hcP" type="number" value="${calcPres}" style="width:110px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink)"></label></div>
         <div class="grid g4"><div class="card kpi"><b style="font-size:22px">−${miles(libera)} €</b><span>Sueldos liberados al mes</span></div><div class="card kpi"><b style="font-size:22px">${miles(masa)} €</b><span>Masa salarial resultante</span></div><div class="card kpi"><b style="font-size:22px;color:var(--${margen >= 0 ? 'w' : 'l'})">${margen >= 0 ? '+' : '−'}${miles(Math.abs(margen))} €</b><span>Margen frente al presupuesto</span><small>${margen >= 0 ? 'Para fichar sin pasarte' : 'Aún por encima del presupuesto'}</small></div><div class="card kpi"><b style="font-size:22px">${kEur(ingreso)}</b><span>Valor de mercado de lo que se vende</span><small>Orientativo; el precio real lo marca la oferta</small></div></div></div>
-      <h4>4 · A quién dar más minutos</h4><div class="pgrid">${mins.join('') || '<p class="vacio">Nadie destaca con pocos minutos.</p>'}</div>
-      <h4>5 · Radiografía de la plantilla</h4>${tabla('radio', [{k: 'n', t: 'Jugador', h: f => jug(f.iu, f.n)}, {k: 'pos', t: 'Posición', cls: 'cmp'}, {k: 'edad', t: 'Edad', n: 1}, {k: 'min', t: `Min. ${sh(prev.t)}`, n: 1, h: f => num(f.min)},
+      <h4>5 · A quién dar más minutos</h4><div class="pgrid">${mins.join('') || '<p class="vacio">Nadie destaca con pocos minutos.</p>'}</div>
+      <h4>6 · Radiografía de la plantilla</h4>${tabla('radio', [{k: 'n', t: 'Jugador', h: f => jug(f.iu, f.n)}, {k: 'pos', t: 'Posición', cls: 'cmp'}, {k: 'edad', t: 'Edad', n: 1}, {k: 'min', t: `Min. ${sh(prev.t)}`, n: 1, h: f => num(f.min)},
         {k: 'avgPrev', t: `Media ${sh(prev.t)}`, n: 1, h: f => f.avgPrev ? d2(f.avgPrev) : '—'}, {k: 'avgAct', t: 'Media actual', n: 1, h: f => f.avgAct ? d2(f.avgAct) : '—'},
         {k: 'pase', t: 'Pase', n: 1, h: f => c(f.pase, 11, 8)}, {k: 'pres', t: 'Presión', n: 1, h: f => c(f.pres, 12, 9.5)}, {k: 'rit', t: 'Ritmo', n: 1, h: f => c(f.rit, 13, 8.5)},
         {k: 'sueldo', t: '€/mes', n: 1, h: f => miles(f.sueldo)}, {k: 'contrato', t: 'Contrato', h: f => fecha(f.contrato)}, {k: 'tag', t: 'Valoración', h: f => `<span class="vd v${tg[f.tag][1]}">${tg[f.tag][0]}</span>`}], filas, {k: 'min', d: -1})}
       <p class="sub" style="margin:8px 0 0;font-size:12px">Verde = alto, rojo = bajo (pase ≥11 / ≤8; presión ≥12 / ≤9,5; ritmo ≥13 / ≤8,5). Son medias de atributos del juego; los porteros no tienen estas cifras.</p>
-      <h4>6 · Otras cosas a vigilar</h4><div class="pgrid">
+      <h4>7 · Otras cosas a vigilar</h4><div class="pgrid">
         ${card('now', 'Renovaciones', 'Cuándo acaban los contratos', Object.entries(porAño).sort().map(([a, n]) => `${n} en ${a}`).join(' · ') + '. A quien vayas a conservar, renuévalo antes de que le quede un año y pierda valor de venta.')}
-        ${noRenovar.length ? card('now', 'Contrato en menos de un año', noRenovar.map(f => jug(f.iu, f.n)).join(', '), 'Decide si renovar o dejar ir: los que cobran poco sirven de rotación barata.') : ''}
         ${card('min', 'Masa salarial por rendimiento', 'Quién cobra más', caros.map(f => `${esc(f.n)} (${miles(f.sueldo)} €, media ${f.avgPrev ? d2(f.avgPrev) : '—, aún sin jugar'})`).join(' · ') + '. Es lo primero que mirar si hay que recortar.')}</div>
     </div></section>`;
+  }
+
+  // ---------------------------------------------------------------- 09b · Renovaciones: a quién, por cuánto y por cuántos años
+  // Solo con datos visibles: rendimiento (media y minutos), edad, sueldo actual, sueldos del resto de la plantilla y
+  // fecha de fin de contrato. La horquilla sale de lo que cobran en la plantilla los que rinden como él, sin pasar
+  // de una subida razonable sobre lo que ya cobra; nunca del valor interno del jugador.
+  function renovaciones(filas, fj, mSueldo, mNota, mMin, margen) {
+    const meses = d => (d - fj) / (30.44 * 864e5);
+    const r50 = v => Math.round(v / 50) * 50;
+    const maxSueldo = Math.max(0, ...filas.map(f => f.sueldo));
+    const cand = filas.filter(f => f.fin && meses(f.fin) <= 18 && meses(f.fin) > -1);
+    if (!cand.length) return `<p class="vacio">Nadie acaba contrato en los próximos 18 meses. Cuando falte año y medio, aparecerán aquí.</p>`;
+    const nota = f => f.avgPrev || f.avgAct || 0;
+    const años = e => !e ? '2–3 años' : e <= 21 ? '4–5 años' : e <= 24 ? '3–4 años' : e <= 28 ? '3 años' : e <= 31 ? '2 años' : '1 año (con otro opcional si cumple)';
+    const out = cand.map(f => {
+      const m = meses(f.fin), n = nota(f), juega = f.min >= mMin * .8, rinde = n && n >= mNota, joven = f.edad && f.edad <= 23;
+      let tipo, cls;
+      if (f.tag === 'sale') { tipo = 'Dejar ir'; cls = 'sell'; }
+      else if ((rinde && juega) || (joven && rinde)) { tipo = 'Renovar ya'; cls = 'sign'; }
+      else if (joven || (n && n >= mNota - .15) || juega) { tipo = 'Renovar si es barato'; cls = 'min'; }
+      else { tipo = 'Dejar ir'; cls = 'sell'; }
+      // referencia: lo que cobran en la plantilla los que rinden como él o mejor
+      const pares = filas.filter(o => o.iu !== f.iu && o.sueldo && nota(o) && n && nota(o) >= n - .1 && nota(o) <= n + .3);
+      const ref = pares.length ? pares.map(o => o.sueldo).sort((a, b) => a - b)[Math.floor(pares.length / 2)] : mSueldo;
+      const tope = cls === 'sign' ? (joven ? 1.6 : 1.4) : 1.15;
+      let desde = r50(Math.max(f.sueldo, Math.min(ref * .9, f.sueldo * 1.1)));
+      let hasta = r50(Math.max(desde * 1.1, Math.min(Math.max(ref, f.sueldo) * 1.1, f.sueldo * tope)));
+      if (!f.sueldo) hasta = r50(Math.max(desde, ref));
+      // ya cobra bastante más que los que rinden como él: renovar sin subir (o pedirle una rebaja)
+      const caro = f.sueldo > ref * 1.3 && cls !== 'sell';
+      if (caro) { desde = r50(Math.max(ref * 1.2, f.sueldo * .85)); hasta = f.sueldo; }
+      const cedido = (D.plantilla.find(p => p.iu === f.iu) || {}).cedido_a;
+      const urg = m <= 6 ? `<b style="color:var(--l)">Urgente:</b> le quedan ${Math.max(0, Math.round(m))} meses; en los últimos 6 meses puede firmar por otro club gratis.`
+        : m <= 12 ? `Le queda menos de un año: renueva antes de que baje su valor de venta.` : `Le quedan ${Math.round(m)} meses: hay margen, pero renovar pronto suele salir más barato.`;
+      const rend = n ? `media de ${d2(n)} (la del equipo es ${d2(mNota)}) con ${num(f.min)} minutos` : 'aún sin partidos que valorar';
+      const sube = hasta - f.sueldo;
+      return {f, tipo, cls, m, sube: cls === 'sell' ? 0 : sube, html: `<div class="card pc ${cls}"><span class="tag">${tipo}${m <= 6 ? ' · urgente' : ''}</span><h4>${jug(f.iu, f.n)}</h4>
+        <p>${f.edad ? f.edad + ' años · ' : ''}${esc(f.pos || '')} · contrato hasta ${fecha(f.contrato)}${cedido ? ` · cedido en el ${esc(cedido)}` : ''}. Cobra ${eur(f.sueldo)} al mes; ${rend}.</p>
+        ${cls === 'sell' ? `<p>No compensa: ${n && n < mNota ? 'rinde por debajo del equipo' : 'apenas juega'}${f.sueldo > mSueldo ? ' y cobra más que la mediana (' + eur(mSueldo) + ')' : ''}. Deja que acabe el contrato o véndelo antes para sacar algo.</p>`
+          : `<div class="ofr"><div><span>Ofrécele</span><b>${eur(desde)} – ${eur(hasta)}</b><small>al mes</small></div><div><span>Duración</span><b>${años(f.edad)}</b></div><div><span>No pases de</span><b>${eur(hasta)}</b><small>${hasta > maxSueldo ? 'sería el que más cobra' : sube > 0 ? '+' + eur(sube) + ' sobre lo actual' : 'sin subida'}</small></div></div>
+          <p class="mini" style="margin:6px 0 0">Referencia: los que rinden como él en la plantilla cobran en torno a ${eur(ref)}.${caro ? ' Ya cobra bastante más que ellos: renueva sin subirle el sueldo, o intenta bajarlo.' : cls === 'min' ? ' Es rotación: si pide más del tope, déjalo ir.' : ''}</p>`}
+        <p class="mini" style="margin:6px 0 0">${urg}</p></div>`};
+    }).sort((a, b) => ({sign: 0, min: 1, sell: 2}[a.cls] - {sign: 0, min: 1, sell: 2}[b.cls]) || a.m - b.m);
+    const coste = out.reduce((s, x) => s + x.sube, 0);
+    return `<p class="sub" style="margin:0 0 10px">Contratos que acaban en los próximos 18 meses. La horquilla sale de lo que ya cobran en tu plantilla los que rinden parecido, con una subida razonable sobre su sueldo actual. Empieza la negociación por abajo; el máximo es para no romper la escala salarial.</p>
+      <div class="pgrid">${out.map(x => x.html).join('')}</div>
+      <p class="mini" style="margin:8px 0 0">Si renuevas a todos los que se proponen por el máximo, la masa salarial sube ${eur(coste)} al mes${isFinite(margen) && margen ? ` (margen actual frente al presupuesto: ${eur(margen)})` : ''}.</p>`;
   }
 
   // ---------------------------------------------------------------- ficha: trayectoria con el club (como varela.html)

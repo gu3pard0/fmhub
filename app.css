@@ -178,6 +178,10 @@ footer ul{padding-left:18px}
 .vivo-toast.ok{border-left:4px solid var(--w)}.vivo-toast.mal{border-left:4px solid var(--l)}
 .vivo-cap{justify-self:start;margin-top:6px;padding:5px 12px;border-radius:999px;border:1px solid var(--gold);background:transparent;color:inherit;font:600 12px inherit;cursor:pointer}
 .vivo-cap:hover{background:var(--gold);color:#111}.vivo-cap:disabled{opacity:.5;cursor:wait}
-.vivo-pet{color:var(--d)}.vivo-pet.mal{color:var(--l)}
+.vivo-pet{color:var(--d)}
+.ofr{display:grid;grid-template-columns:1.5fr 1fr 1fr;gap:8px;margin:8px 0 0;padding:10px;border-radius:10px;background:color-mix(in srgb,var(--gold) 9%,transparent);border:1px solid color-mix(in srgb,var(--gold) 30%,transparent)}
+.ofr div{display:grid;gap:1px}.ofr span{font:700 10px 'JetBrains Mono';letter-spacing:.06em;text-transform:uppercase;color:var(--mute,#9a9486)}
+.ofr b{font-size:14px;line-height:1.2}.ofr small{font-size:11px;color:var(--mute,#9a9486)}
+@media(max-width:560px){.ofr{grid-template-columns:1fr 1fr}.ofr div:first-child{grid-column:1/-1}}.vivo-pet.mal{color:var(--l)}
 .vivo-toast.fuera{opacity:0;transform:translateY(8px)}
 @media (max-width:560px){.vivo-txt{max-width:56vw}}
