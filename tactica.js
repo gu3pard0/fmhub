@@ -49,14 +49,18 @@ const TAC = (() => {
   function rendimiento() {
     const ss = HIST.S(), prev = [...ss].reverse().find(s => s.completa && s.t !== IDX.temporadaActual);
     const pq = {}; for (const p of prev?.sq || []) pq[p.iu] = p;
-    const out = {}, car = {};
+    const out = {}, car = {}, antes = {};
+    for (const x of ss) if (x.t !== IDX.temporadaActual) for (const q of x.sq) if (q.pj) antes[q.iu] = true;
+    const inicio = `${String(IDX.temporadaActual || '').slice(0, 4)}-06-01`, llegada = {};
+    for (const tr of IDX.traspasos) if (tr.entra && tr.iu && (!llegada[tr.iu] || tr.fecha > llegada[tr.iu])) llegada[tr.iu] = tr.fecha;
     for (const x of ss) for (const q of x.sq) if (q.avg && q.pj) { const c = (car[q.iu] ||= {s: 0, pj: 0, temps: 0}); c.s += q.avg * q.pj; c.pj += q.pj; c.temps++; }
     for (const p of D.plantilla) {
       const a = (IDX.stats[p.iu] || {}).total || {}, q = pq[p.iu] || {}, c = car[p.iu];
       const pjA = a.partidos || 0, pjP = q.pj || 0, nA = a.nota_media || 0, nP = q.avg || 0;
       const w = (nA ? pjA * 1.5 : 0) + (nP ? pjP : 0);
       out[p.iu] = {n: w >= 3 ? ((nA ? nA * pjA * 1.5 : 0) + (nP ? nP * pjP : 0)) / w : null, pjA, minA: a.minutos || 0, nA, pjP, nP, minP: q.min || 0, prevT: prev?.t,
-        nCar: c && c.pj >= 5 ? c.s / c.pj : null, pjCar: c ? c.pj : 0, temps: c ? c.temps : 0};
+        nCar: c && c.pj >= 5 ? c.s / c.pj : null, pjCar: c ? c.pj : 0, temps: c ? c.temps : 0,
+        nuevo: llegada[p.iu] ? llegada[p.iu] >= inicio : !antes[p.iu], llegada: llegada[p.iu]};
     }
     return out;
   }
@@ -236,7 +240,7 @@ const TAC = (() => {
     // vender: cobra mucho y casi no juega
     for (const q of plantilla) {
       const r = R[q.iu], m = mejor[q.iu];
-      if (titularEn[q.iu] !== undefined || !q.sueldo_mes_eur || q.sueldo_mes_eur < mSueldo * 1.2 || r.minA > maxMin * .35) continue;
+      if (r.nuevo || titularEn[q.iu] !== undefined || !q.sueldo_mes_eur || q.sueldo_mes_eur < mSueldo * 1.2 || r.minA > maxMin * .35) continue;
       const puesto = m ? t.slots[m.i].code : null;
       const tope = Math.round(Math.min(q.sueldo_mes_eur * .6, mSueldo) / 50) * 50;
       out.push(card('sell', 'Vender', `${esc(q.nombre)} cobra mucho y casi no juega`,
@@ -263,7 +267,7 @@ const TAC = (() => {
   // ---------------------------------------------------------------- tabla de un vistazo: qué hacer con cada jugador
   const ACCIONES = {renovar: ['Renovar', 'now', 1], vender: ['Vender', 'sell', 0], minutos: ['Más minutos', 'min', 2], ceder: ['Ceder', 'min', 4], dejar: ['Dejar ir', 'sell', 3],
     relevo: ['Buscar relevo', 'now', 5], debajo: ['Rinde por debajo', 'now', 6], pilar: ['Pilar', 'ok', 8], titular: ['Titular', 'ok', 9], rotacion: ['Rotación', 'neutro', 10],
-    sinsitio: ['Sin sitio', 'sell', 7], cedido: ['Cedido', 'neutro', 11]};
+    sinsitio: ['Sin sitio', 'sell', 7], cedido: ['Cedido', 'neutro', 11], nuevo: ['Recién llegado: se valora a final de temporada', 'neutro', 7.5]};
   let filtro = 'todos';
   function vistazo(R, nombre, ref, titularEn, mejor, fj) {
     const {mNota, mSueldo, maxMin} = ref;
@@ -273,7 +277,8 @@ const TAC = (() => {
       const acc = [];
       if (p.cedido_a) acc.push('cedido');
       else {
-        if (!tit && p.sueldo_mes_eur >= mSueldo * 1.2 && r.minA <= maxMin * .35) acc.push('vender');
+        // en su primera temporada aún es pronto para juzgar si juega poco: se marca, pero no se propone vender
+        if (!tit && p.sueldo_mes_eur >= mSueldo * 1.2 && r.minA <= maxMin * .35) acc.push(r.nuevo ? 'nuevo' : 'vender');
         const vende = acc.includes('vender');
         if (!vende && acaba && (tit || (r.n && r.n >= mNota))) acc.push('renovar');
         else if (!vende && acaba && !tit && !(e <= 21)) acc.push('dejar');
@@ -284,7 +289,7 @@ const TAC = (() => {
         if (!tit && e && e <= 21 && r.minA < maxMin * .2 && !acc.includes('minutos')) acc.push('ceder');
         if (tit && e >= 31) acc.push('relevo');
         if (m?.est >= 3.5 && r.n && r.pjA + r.pjP >= 8 && r.n < mNota - .1) acc.push('debajo');
-        if (!m && !acc.length) acc.push('sinsitio');
+        if (!m && !acc.length && !r.nuevo) acc.push('sinsitio');
         if (!acc.length) acc.push(tit ? (r.n && r.n >= mNota ? 'pilar' : 'titular') : 'rotacion');
       }
       acc.sort((a, b) => ACCIONES[a][2] - ACCIONES[b][2]);
