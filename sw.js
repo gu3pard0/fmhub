@@ -1,7 +1,7 @@
 // FM Hub: service worker. Guarda la web y los últimos datos para poder abrirla sin conexión
 // (enseña lo último que se vio). Siempre intenta primero la red para tener los datos al día.
-const CACHE = 'fmhub-v2';
-const BASE = ['./', 'index.html', 'app.js', 'app.css', 'varela_base.css', 'manifest.webmanifest', 'icono.svg', 'icono-192.png', 'icono-512.png'];
+const CACHE = 'fmhub-v3';
+const BASE = ['./', 'index.html', 'app.js', 'curiosidades.js', 'app.css', 'varela_base.css', 'manifest.webmanifest', 'icono.svg', 'icono-192.png', 'icono-512.png'];
 self.addEventListener('install', e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(BASE)).then(() => self.skipWaiting())));
 self.addEventListener('activate', e => e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())));
 self.addEventListener('fetch', e => {
