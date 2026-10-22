@@ -171,7 +171,7 @@ footer ul{padding-left:18px}
 .vivo-lista li:last-child{border-bottom:0}
 .vivo-lista small{color:var(--mut);font-size:12px}.vivo-lista small.como{color:var(--ink)}
 .vivo-est{font:700 10px 'JetBrains Mono';letter-spacing:.06em;text-transform:uppercase}
-.vivo-lista li.capturado .vivo-est{color:var(--w)}.vivo-lista li.pendiente .vivo-est{color:var(--l)}.vivo-lista li.opcional .vivo-est{color:var(--d)}
+.vivo-lista li.capturado .vivo-est{color:var(--w)}.vivo-lista li.pendiente .vivo-est{color:var(--l)}.vivo-lista li.opcional .vivo-est,.vivo-lista li.capturando .vivo-est{color:var(--d)}
 .vivo-rec li{font-size:12px;padding:3px 0;color:var(--mut)}.vivo-rec time{font-family:'JetBrains Mono';color:var(--ink)}
 .vivo-toasts{order:-2;display:flex;flex-direction:column;gap:6px;align-items:flex-end}
 .vivo-toast{background:var(--ink);color:var(--bg);padding:9px 13px;border-radius:10px;font-size:13px;box-shadow:0 10px 30px -12px rgba(0,0,0,.6);transition:opacity .6s,transform .6s}
