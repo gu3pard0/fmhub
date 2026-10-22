@@ -446,7 +446,7 @@ function vistaCuriosidades() {
   const filtro = vistaCuriosidades.f ||= 'todas';
   const lista = filtro === 'ultima' ? todas.filter(c => c.t === ultima) : todas;
   const chip = (k, t) => `<button class="chip" data-cf="${k}" aria-pressed="${filtro === k}">${t}</button>`;
-  return `<section><div class="wrap"><h2 data-n="09">Datos y curiosidades</h2>
+  return `<section><div class="wrap"><h2 data-n="13">Datos y curiosidades</h2>
     <p class="sub">Curiosidades que no aportan nada, pero entretienen. Nadie las escribe: FM Hub recorre todos los datos (jugadores, temporadas, partidos, rachas, rivales, minutos, atributos, finanzas y traspasos), busca récords, mínimos, rachas y primicias y enseña las ${todas.length} más llamativas de ${miles(candidatas)} encontradas. Cambian solas con cada partido.</p>
     <div class="filters">${chip('todas', `Todas (${todas.length})`)}${chip('ultima', `Temporada ${esc(ultima || '')} (${todas.filter(c => c.t === ultima).length})`)}</div>
     <div class="curs">${lista.map(c => tarjeta(c, todas.indexOf(c))).join('') || '<p class="vacio">No hay curiosidades de esta temporada todavía.</p>'}</div>

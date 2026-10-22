@@ -62,6 +62,9 @@ function preparar() {
     IDX.golesPorPartido[p.clave] = gs.filter(g => n[g.lado]++ < max[g.lado]);
   }
   IDX.temporadas = [...new Set(IDX.partidos.map(p => p.temporada))].sort();
+  // alineaciones del calendario exportado (si se exportó con la columna de jugadores)
+  IDX.alin = {};
+  for (const a of D.alineaciones || []) (IDX.alin[a.fecha] ||= []).push(a);
   IDX.stats = {};
   for (const e of D.estadisticas) (IDX.stats[e.iu] ||= {})[e.tipo] = e;
   IDX.export = {};
@@ -143,8 +146,8 @@ function cabecera() {
   $('#titulo').innerHTML = `${esc(IDX.club)} <em>de Varela</em>`;
   $('#lead').textContent = `Datos leídos de Football Manager 2024 mientras juegas. ${window.FMHUB_ESTATICO ? 'Copia autocontenida generada el ' + fecha(D.generado.slice(0, 10)) + '.' : 'Actualizado: ' + D.generado.replace('T', ' ').slice(0, 16) + '.'}`;
   const gf = of.reduce((s, p) => s + p.gf, 0), gc = of.reduce((s, p) => s + p.gc, 0);
-  $('#bigs').innerHTML = [[of.length, 'partidos oficiales'], [v, 'victorias'], [e, 'empates'], [d, 'derrotas'], [gf, 'goles a favor'], [gc, 'goles en contra']]
-    .map(([n, t]) => `<div class="big"><b>${num(n)}</b><span>${t}</span></div>`).join('');
+  $('#bigs').innerHTML = HIST.bigsPalmares(of);
+  $('#ladder').innerHTML = HIST.escalera();
   $('#pie').innerHTML = `FM Hub · solo lectura: no modifica el juego ni la partida · ${esc(D.generado.replace('T', ' ').slice(0, 16))}`;
 }
 
@@ -170,16 +173,8 @@ V.inicio = () => {
         <div class="fila-btn"><a class="btn" href="api/exportar-html">Descargar HTML autocontenido</a></div>
         <p class="mini">El HTML lleva todos los datos dentro: se puede abrir sin FM Hub o subir a cualquier hosting.</p>
       </div></div></div>`;
-  // Exportar temporada para Claude (fase 4): solo en la web local, la genera FM Hub
-  const ts = [...IDX.temporadas].reverse();
-  const exp = (window.FMHUB_ESTATICO || window.FMHUB_PUBLICADO) ? '' : `
-    <div class="card"><h4 style="margin-top:0">Exportar temporada para Claude</h4>
-      <p class="mini">Un zip con todo lo de la temporada en JSON (partidos, goleadores, alineaciones, clasificación, plantilla, traspasos, economía, récords) y un resumen corto en .md para pegar en una conversación. También se guarda en la carpeta <b class="mono">exports</b>.</p>
-      <div class="fila-btn"><select id="exp-t" class="btn sec" onchange="document.getElementById('exp-a').href='api/exportar-temporada?t='+encodeURIComponent(this.value)">${ts.map(t => `<option>${esc(t)}</option>`).join('')}</select>
-        <a class="btn" id="exp-a" href="api/exportar-temporada?t=${encodeURIComponent(ts[0] || '')}">Exportar</a></div>
-    </div>`;
   return `<section><div class="wrap">
-    <h2 data-n="01">Hoy</h2><p class="sub">Forma de los últimos partidos oficiales, novedades de las últimas lecturas y estado de FM Hub.</p>
+    <h2 data-n="00">Hoy</h2><p class="sub">Forma de los últimos partidos oficiales, novedades de las últimas lecturas y estado de FM Hub.</p>
     <div class="form">${forma}</div>
     <div class="legend"><span><b style="background:var(--w)"></b>Victoria</span><span><b style="background:var(--d)"></b>Empate</span><span><b style="background:var(--l)"></b>Derrota</span></div>
     <div class="kpis">${k.map(([v, t]) => `<div class="card kpi"><b>${v}</b><span>${t}</span></div>`).join('')}</div>
@@ -190,7 +185,7 @@ V.inicio = () => {
       <div class="card"><h4 style="margin-top:0">Últimos partidos</h4>${proxHtml}${ult.map(p => `<div class="tri"><span class="d">${fecha(p.fecha)}</span><span><span class="ha">${p.casa ? 'C' : 'F'}</span>${esc(p.rival)} <span class="mini">${esc(p.competicion || '')}</span></span>${pillRes(p)}</div>`).join('')}
         <h4>Últimos traspasos</h4>${tras.map(t => `<div class="tri"><span class="d">${fecha(t.fecha)}</span><span class="${t.entra ? 'in' : 'out'}">${t.entra ? '↘' : '↗'} ${jug(t.iu, t.jugador)} <span class="mini">${esc(t.otro_club || 'libre')}</span></span><span class="f">${t.cesion ? 'cesión' : eur(t.precio_eur)}</span></div>`).join('')}</div>
     </div>
-    <div class="cols2" style="margin-top:14px">${qr}${exp}
+    <div class="cols2" style="margin-top:14px">${qr}${HIST.exportacion()}
       ${D.registro ? `<div class="card"><h4 style="margin-top:0">Estado de FM Hub</h4>${fuentesHtml()}<pre class="registro">${esc(D.registro.join('\n')) || 'Sin registro.'}</pre></div>` : ''}
     </div>
   </div></section>`;
@@ -284,7 +279,7 @@ V.plantilla = () => {
   }).filter(p => (filtro === 'todos' || p.g === filtro) && (!q || p.nombre.toLowerCase().includes(q)));
   const chips = [['todos', 'Todos'], ['POR', 'Porteros'], ['DEF', 'Defensas'], ['MED', 'Medios'], ['DEL', 'Delanteros']]
     .map(([k, t]) => `<button class="chip" data-pf="${k}" aria-pressed="${filtro === k}">${t}</button>`).join('');
-  return `<section><div class="wrap"><h2 data-n="02">Plantilla</h2>
+  return `<section><div class="wrap"><h2 data-n="03">Plantilla actual</h2>
     <p class="sub">Temporada ${esc(IDX.temporadaActual)}: partidos oficiales, minutos y goles (los amistosos van aparte). Toca una columna para ordenar y un nombre para ver su ficha.</p>
     <input class="search" id="buscar" placeholder="Buscar jugador" value="${esc(V.plantilla.q || '')}">
     <div class="filters">${chips}</div>
@@ -312,7 +307,7 @@ V.partidos = () => {
   const of = ps.filter(p => p.oficial);
   const r = k => of.filter(p => p.res === k).length;
   const tabs = IDX.temporadas.map(t => `<button class="tab" data-pt="${t}" aria-selected="${t === temp}">${t}<small>${IDX.partidos.filter(p => p.temporada === t && p.oficial).length} oficiales</small></button>`).join('');
-  return `<section><div class="wrap"><h2 data-n="03">Partidos</h2>
+  return `<section><div class="wrap"><h2 data-n="05">Partidos</h2>
     <p class="sub">Todos los partidos con resultado, competición y goleadores con minuto (p = penalti, pp = en propia puerta).</p>
     <div class="tabs">${tabs}</div>
     <div class="filters">${[['W', 'Victorias'], ['D', 'Empates'], ['L', 'Derrotas']].map(([k, t]) => `<button class="chip" data-pr="${k}" aria-pressed="${resF === k}">${t}</button>`).join('')}</div>
@@ -327,35 +322,8 @@ V.partidos = () => {
       {k: 'espectadores', t: 'Público', n: 1, h: p => num(p.espectadores)},
       {k: 'gol', t: 'Goleadores', cls: 'sc', h: golesTexto},
       {k: 'formacion', t: 'Formación', cls: 'cmp', h: p => esc(p.formacion) + (p.formacion_rival ? `<br><span class="mini">rival: ${esc(p.formacion_rival)}</span>` : '')},
+      ...(D.alineaciones?.length ? [{k: 'alin', t: 'Alineación', cls: 'sc', h: p => (IDX.alin[p.fecha] || []).map(a => jug(a.iu, a.jugador)).join(', ') || '—'}] : []),
     ], ps.map(p => ({...p, _cls: 'r' + p.res})), {k: 'fecha', d: 1})}
-  </div></section>`;
-};
-
-V.temporadas = () => {
-  const temp = V.temporadas.t ||= IDX.temporadas.filter(t => D.clasificaciones.some(c => c.temporada === t)).pop() || IDX.temporadaActual;
-  const cl = D.clasificaciones.filter(c => c.temporada === temp);
-  const of = IDX.partidos.filter(p => p.temporada === temp && p.oficial);
-  const gol = {};
-  for (const p of of) for (const g of (IDX.golesPorPartido[p.clave] || [])) if ((g.lado === 0) === p.casa && g.tipo !== 1 && g.tipo !== 3) {
-    const k = g.iu || g.jugador; (gol[k] ||= {iu: g.iu, n: g.jugador, g: 0}).g++;
-  }
-  const top = Object.values(gol).sort((a, b) => b.g - a.g).slice(0, 10);
-  const max = top[0]?.g || 1;
-  const forms = {};
-  for (const p of of) if (p.formacion) { const f = (forms[p.formacion] ||= {f: p.formacion, j: 0, v: 0, pts: 0}); f.j++; f.v += p.res === 'W'; f.pts += {W: 3, D: 1, L: 0}[p.gf > p.gc ? 'W' : p.gf < p.gc ? 'L' : 'D']; }
-  const fl = Object.values(forms).sort((a, b) => b.j - a.j);
-  const formHtml = fl.length ? `<div class="card" style="margin-top:14px"><h4 style="margin-top:0">Formaciones (calendario exportado)</h4>${fl.map(f => `<div class="tri"><span class="d">${f.j} PJ</span><span>${esc(f.f)}</span><span class="f">${f.v} V · ${(f.pts / f.j).toFixed(2)} pts/PJ</span></div>`).join('')}</div>` : '';
-  const tabs = IDX.temporadas.map(t => `<button class="tab" data-tt="${t}" aria-selected="${t === temp}">${t}</button>`).join('');
-  return `<section><div class="wrap"><h2 data-n="04">Temporadas</h2>
-    <p class="sub">Clasificación final (o la última que FM tenía cargada) y máximos goleadores en partidos oficiales.</p>
-    <div class="tabs">${tabs}</div>
-    <div class="cols2">
-      <div>${cl.length ? tabla('clas' + temp, [
-        {k: 'pos', t: '#', n: 1}, {k: 'club', t: 'Equipo'}, {k: 'j', t: 'PJ', n: 1}, {k: 'g', t: 'G', n: 1}, {k: 'e', t: 'E', n: 1},
-        {k: 'p', t: 'P', n: 1}, {k: 'gf', t: 'GF', n: 1}, {k: 'gc', t: 'GC', n: 1}, {k: 'pts', t: 'Pts', n: 1}],
-        cl.map(c => ({...c, _cls: c.club === IDX.club ? 'propio' : ''})), {k: 'pos', d: 1}) : '<p class="vacio">No hay clasificación guardada de esta temporada (se guarda al abrir la tabla en FM).</p>'}</div>
-      <div class="card"><h4 style="margin-top:0">Goleadores</h4><div class="bars">${top.map(t => `<div class="row"><span>${jug(t.iu, t.n)}</span><div class="bg"><div class="fg g" style="width:${100 * t.g / max}%"></div></div><b>${t.g}</b></div>`).join('') || '<p class="vacio">Sin goles.</p>'}</div>${formHtml}</div>
-    </div>
   </div></section>`;
 };
 
@@ -368,17 +336,18 @@ V.traspasos = () => {
   const gasto = (l, e) => l.filter(t => !!t.entra === e && !t.cesion).reduce((s, t) => s + (t.precio_eur || 0), 0);
   const bloque = (lista, entra) => lista.filter(t => !!t.entra === entra).map(t =>
     `<div class="tri"><span class="d">${fecha(t.fecha)}</span><span>${jug(t.iu, t.jugador)} <span class="mini">${entra ? 'de' : 'a'} ${esc(t.otro_club || 'agente libre')}${t.origen === 'varela.html' ? ' · de varela.html' : ''}</span></span><span class="f ${entra ? 'out' : 'in'}">${t.cesion ? 'cesión' : t.precio_eur ? eur(t.precio_eur) : 'libre'}</span></div>`).join('') || '<p class="vacio">Ninguno.</p>';
-  return `<section><div class="wrap"><h2 data-n="05">Traspasos</h2>
+  return `<section><div class="wrap"><h2 data-n="09">Fichajes y salidas</h2>
     <p class="sub">Fichajes y salidas por temporada, como en el historial de traspasos de FM (sin cuerpo técnico). Importes como en pantalla. Las promociones de la cantera no son fichajes y van aparte. Los movimientos marcados «de varela.html» ya no están en la memoria de FM y salen de tu varela.html.</p>
     ${[...new Set([...Object.keys(porT), ...Object.keys(cant)])].sort().reverse().map(t => { porT[t] ||= []; return `<h4>${t} <span class="mini">· ${porT[t].filter(x => x.entra).length} llegadas (${eur(gasto(porT[t], true))}) · ${porT[t].filter(x => !x.entra).length} salidas (${eur(gasto(porT[t], false))})</span></h4>
       ${cant[t] ? `<details class="cant"><summary>Promoción de la cantera: ${cant[t].length} jugadores (${fecha(cant[t][0].fecha)})</summary><p>${cant[t].map(x => jug(x.iu, x.jugador)).join(' · ')}</p></details>` : ''}
       <div class="tr2"><div class="card"><h4 style="margin-top:0" class="in">Llegan</h4>${bloque(porT[t], true)}</div><div class="card"><h4 style="margin-top:0" class="out">Salen</h4>${bloque(porT[t], false)}</div></div>`; }).join('')}
+    ${HIST.rentabilidad()}
   </div></section>`;
 };
 
 V.finanzas = () => {
   const f = D.finanzas;
-  if (!f.length) return `<section><div class="wrap"><h2 data-n="06">Finanzas</h2><p class="vacio">Sin datos de finanzas.</p></div></section>`;
+  if (!f.length) return `<section><div class="wrap"><h2 data-n="10">Economía</h2><p class="vacio">Sin datos de finanzas.</p></div></section>`;
   const W = 900, H = 220, P = 30;
   const sal = f.map(x => x.saldo_eur), mn = Math.min(0, ...sal), mx = Math.max(...sal);
   const X = i => P + i * (W - 2 * P) / Math.max(1, f.length - 1), Y = v => H - P - (v - mn) * (H - 2 * P) / Math.max(1, mx - mn);
@@ -386,7 +355,7 @@ V.finanzas = () => {
   const porT = {};
   for (const x of f) { const t = (porT[x.temporada] ||= {i: 0, g: 0, s: 0, n: 0}); t.i += x.ingresos_totales_eur; t.g += x.gastos_totales_eur; t.s += x.gasto_sueldos_eur; t.n++; }
   const ult = f[f.length - 1];
-  return `<section><div class="wrap"><h2 data-n="06">Finanzas</h2>
+  return `<section><div class="wrap"><h2 data-n="10">Economía</h2>
     <p class="sub">Últimos ${f.length} meses leídos de FM (moneda interna × 1,16618; junio de 2028 cuadra al euro con la exportación de economía). El mes en curso todavía cambia.</p>
     <div class="kpis"><div class="card kpi"><b>${eur(ult.saldo_eur)}</b><span>saldo del mes en curso</span></div>
       <div class="card kpi"><b>${eur(Math.round(ult.presupuesto_salarial_semana * 5.067))}</b><span>presupuesto salarial / mes</span></div>
@@ -403,6 +372,7 @@ V.finanzas = () => {
     ${tabla('finM', [{k: 'mes', t: 'Mes'}, {k: 'saldo_eur', t: 'Saldo', n: 1, h: r => eur(r.saldo_eur)}, {k: 'ingresos_totales_eur', t: 'Ingresos', n: 1, h: r => eur(r.ingresos_totales_eur)},
       {k: 'gastos_totales_eur', t: 'Gastos', n: 1, h: r => eur(r.gastos_totales_eur)}, {k: 'neto_eur', t: 'Neto', n: 1, h: r => eur(r.neto_eur)},
       {k: 'gasto_traspasos_neto_eur', t: 'Traspasos', n: 1, h: r => eur(r.gasto_traspasos_neto_eur)}], f, {k: 'mes', d: -1})}
+    ${HIST.economia()}
   </div></section>`;
 };
 
@@ -427,17 +397,20 @@ V.historial = () => {
     if (h.nota_media && h.partidos) { j.nsum += h.nota_media * h.partidos; j.nj += h.partidos; }
   }
   const actuales = new Set(D.plantilla.map(p => p.iu));
-  const filas = Object.values(porJ).filter(j => !q || (j.n || '').toLowerCase().includes(q))
-    .map(j => ({...j, est: actuales.has(j.iu) ? 'en la plantilla' : 'exjugador', nt: j.temps.size, nota: j.nj ? j.nsum / j.nj : null, gpp: j.pj ? j.g / j.pj : null}));
+  const can = HIST.cantera(), act = HIST.enPlantilla();
+  const soloAct = !!V.historial.act, sinCan = !!V.historial.nc;
+  const filas = Object.values(porJ).filter(j => (!q || (j.n || '').toLowerCase().includes(q)) && (!soloAct || act.has(j.iu)) && (!sinCan || !can.has(j.iu)))
+    .map(j => ({...j, est: (actuales.has(j.iu) ? 'en la plantilla' : 'exjugador') + (can.has(j.iu) ? ' · cantera' : ''), nt: j.temps.size, nota: j.nj ? j.nsum / j.nj : null, gpp: j.pj ? j.g / j.pj : null}));
   const ret = {};
   for (const r of D.retirados) (ret[r.jugador] ||= []).push(r);
   const chip = (attr, k, t, on) => `<button class="chip" data-${attr}="${k}" aria-pressed="${on}">${t}</button>`;
-  return `<section><div class="wrap"><h2 data-n="07">Historial</h2>
+  return `<section><div class="wrap"><h2 data-n="04">Todos los jugadores</h2>
     <p class="sub">Carrera de los jugadores actuales y de los que pasaron por el club, sacada de la tabla de carrera de FM. Elige si contar solo lo hecho con el ${esc(IDX.club)} o toda su carrera, y si todas las competiciones oficiales o solo la liga. Toca un nombre para ver todas sus temporadas.</p>
     <input class="search" id="buscarH" placeholder="Buscar jugador" value="${esc(V.historial.q || '')}">
     <div class="filters">${chip('hd', 'dart', 'Solo con el ' + esc(IDX.club), dart)}${chip('hd', 'todo', 'Toda la carrera', !dart)}</div>
     <div class="filters">${chip('hc', 'total', 'Partidos oficiales', comp === 'total')}${chip('hc', 'liga', 'Solo liga', comp === 'liga')}</div>
-    ${tabla('hist', [{k: 'n', t: 'Jugador', h: j => jug(j.iu, j.n)}, {k: 'est', t: 'Estado'}, {k: 'nt', t: 'Temp.', n: 1},
+    <div class="filters"><button class="chip" data-hact="1" aria-pressed="${soloAct}">Solo plantilla actual</button><button class="chip" data-hnc="1" aria-pressed="${sinCan}">Sin canteranos</button><span class="mini" style="align-self:center">${filas.length} jugadores</span></div>
+    ${tabla('hist', [{k: 'n', t: 'Jugador', h: j => jug(j.iu, j.n) + (can.has(j.iu) ? ' <span class="ha">CANTERA</span>' : '') + (act.has(j.iu) ? ' <span class="ha" style="color:var(--w)">ACTUAL</span>' : '')}, {k: 'est', t: 'Estado'}, {k: 'nt', t: 'Temp.', n: 1, h: j => `<b style="margin-right:6px">${j.nt}</b>${[...j.temps].sort().map(t => `<span class="pill" style="margin-right:3px">${t.slice(2)}</span>`).join('')}`},
       {k: 'pj', t: 'PJ', n: 1}, {k: 'tit', t: 'Tit', n: 1}, {k: 'min', t: 'Min', n: 1, h: j => num(j.min)}, {k: 'g', t: 'Goles', n: 1}, {k: 'a', t: 'Asis', n: 1},
       {k: 'gpp', t: 'Gol/PJ', n: 1, h: j => j.gpp === null ? '–' : j.gpp.toFixed(2)}, {k: 'nota', t: 'Nota', n: 1, h: j => j.nota ? j.nota.toFixed(2) : '–'},
       {k: 'mvp', t: 'MVP', n: 1}, {k: 'ama', t: 'Am', n: 1}], filas, {k: 'pj', d: -1})}
@@ -493,6 +466,7 @@ V.jugador = iu => {
     <p><a class="j" href="javascript:history.back()">← Volver</a></p>
     <div class="ficha-cab"><h2>${esc(nombre)}</h2>${p ? '<span class="pill">en la plantilla</span>' : '<span class="pill">exjugador</span>'}</div>
     <div class="meta" style="margin-top:10px">${meta.map(([k, v]) => `<span>${k}: <b>${esc(v)}</b></span>`).join('')}</div>
+    ${HIST.trayectoria(iu)}
     <h4>Atributos</h4>${atr}
     ${hist.length > 1 || (IDX.evol[iu] || []).length > 1 ? `<div class="cols2"><div class="card"><h4 style="margin-top:0">Suma de atributos en el tiempo</h4>${mini(hist.filter(h => Object.values(h.v).filter(x => x > 1).length >= 20).map(h => sumaAtr(h.v)))}<p class="mini">${hist.length} capturas con cambios.</p></div>
       <div class="card"><h4 style="margin-top:0">Nota media en las exportaciones</h4>${mini((IDX.evol[iu] || []).filter(e => e.nota_media).map(e => e.nota_media), v => Number(v).toFixed(2))}<p class="mini">Nota media de la temporada en cada exportación de plantilla (vuelve a empezar cada temporada).</p></div></div>` : ''}
@@ -519,7 +493,7 @@ V.progreso = () => {
   const cols = [{k: 'nombre', t: 'Jugador', h: r => jug(r.iu, r.nombre)}, {k: 'edad', t: 'Edad', n: 1}, {k: 'd', t: 'Δ atributos', n: 1, h: r => cambio(r.d)},
     {k: 'mejor', t: 'Mayor mejora'}, {k: 'peor', t: 'Mayor bajada'}, {k: 'caps', t: 'Cambios', n: 1}, {k: 'desde', t: 'Desde', h: r => fecha(r.desde.slice(0, 10))}];
   const sube = [...filas].sort((a, b) => b.d - a.d).slice(0, 10), baja = [...filas].sort((a, b) => a.d - b.d).slice(0, 10);
-  return `<section><div class="wrap"><h2 data-n="08">Progreso</h2>
+  return `<section><div class="wrap"><h2 data-n="12">Progreso</h2>
     <p class="sub">Cambio de atributos de cada jugador de la plantilla entre su primera y su última captura guardada (memoria y exportaciones). Cuantas más capturas, más fino.</p>
     <div class="cols2"><div><h4>Los que más han subido</h4>${tabla('psube', cols, sube, {k: 'd', d: -1})}</div><div><h4>Los que más han bajado</h4>${tabla('pbaja', cols, baja, {k: 'd', d: 1})}</div></div>
     <h4>Toda la plantilla</h4>${tabla('ptodos', cols, filas, {k: 'd', d: -1})}
@@ -527,6 +501,12 @@ V.progreso = () => {
 };
 
 V.curiosidades = () => vistaCuriosidades();
+V.viaje = () => HIST.viaje();
+V.temporadas = () => HIST.temporadas();
+V.rivales = arg => HIST.rivales(arg);
+V.goles = () => HIST.goles();
+V.hitos = () => HIST.hitos();
+V.plan = () => HIST.plan();
 
 // ---------------------------------------------------------------- navegación
 function pintar() {
@@ -550,6 +530,8 @@ document.addEventListener('click', ev => {
   else if (ds.pr) V.partidos.r = V.partidos.r === ds.pr ? null : ds.pr;
   else if (ds.hd) V.historial.dart = ds.hd === 'dart';
   else if (ds.hc) V.historial.comp = ds.hc;
+  else if (ds.hact) V.historial.act = !V.historial.act;
+  else if (ds.hnc) V.historial.nc = !V.historial.nc;
   else if (ds.jc) V.jugador.dart = !V.jugador.dart;
   else if (ds.pc !== undefined) V.partidos.c = V.partidos.c === ds.pc ? null : ds.pc;
   else if (ds.tt) V.temporadas.t = ds.tt;

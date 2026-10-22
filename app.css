@@ -123,3 +123,9 @@ svg.g .ge{font:500 9px 'JetBrains Mono';fill:var(--mut)}
 details.cant{margin:0 0 10px;font-size:13px}
 details.cant summary{cursor:pointer;color:var(--mut);font-weight:600}
 details.cant p{margin:6px 0 0;line-height:1.7}
+
+/* ---------- Cabecera: cifras del palmarés sin desbordar ---------- */
+.bigs{grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr))}
+.big b{font-size:clamp(20px,3vw,30px)}
+@media (max-width:560px){.bigs{grid-template-columns:repeat(2,minmax(0,1fr))}.big b{font-size:clamp(20px,6.5vw,26px)}}
+table.copas td{white-space:normal;vertical-align:top}
