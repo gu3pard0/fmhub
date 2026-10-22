@@ -153,3 +153,4 @@ footer ul{padding-left:18px}
 /* pestaña seleccionada sin color de temporada: tinta invertida (se lee en claro y en oscuro) */
 .tab[aria-selected=true]:not([style*="--acc"]){color:var(--bg)}
 .tab[aria-selected=true]:not([style*="--acc"]) small{color:color-mix(in srgb,var(--bg) 70%,transparent)}
+.trofeo img.trofeo-img{width:96px;height:96px}
