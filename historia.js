@@ -132,6 +132,18 @@ const HIST = (() => {
       if (s.completa && s.lg.pos === 1) out.push({t: s.t, nombre: `Campeón de la ${LIGA_CORTA(s.liga)}`, detalle: `${s.lg.pts} puntos`, f: s.lgPs[s.lgPs.length - 1]?.fecha, tipo: 'liga', slug: slugTrofeo(s.liga)});
       for (const p of s.ps) if (p.oficial && esFinal(p) && !/vuelta|ida/.test(ronda(p)) && p.res === 'W')
         out.push({t: s.t, nombre: p.ck === 'PO' ? `Campeón del playoff de ${LIGA_CORTA(s.liga)}` : `Campeón de la ${p.competicion}`, detalle: `final: ${p.gf}-${p.gc} al ${p.rival}${p.pen || ''}`, f: p.fecha, tipo: 'copa', slug: p.ck === 'PO' ? slugTrofeo('playoff', s.liga) : slugTrofeo(p.competicion)});
+      // sin ronda conocida: en una copa eliminatoria ya terminada, ganar el último partido es ganar la final
+      // (en el EFL Trophy hace falta haber pasado la fase de grupos: al menos 6 partidos)
+      const porCopa = {};
+      for (const p of s.ps) if (p.oficial && p.ck !== 'LG' && p.ck !== 'PO') (porCopa[p.competicion] ||= []).push(p);
+      for (const [c, ps] of Object.entries(porCopa)) {
+        const u = ps[ps.length - 1];
+        if (ronda(u) || out.some(x => x.f === u.fecha)) continue;
+        const terminada = s.completa || (D.proximos || []).every(x => x.competicion !== c);
+        const ganado = u.res === 'W' || (u.global && u.global.a_favor > u.global.en_contra);
+        if (terminada && ganado && !(/Trophy|Trofeo/.test(c) && ps.length < 6))
+          out.push({t: s.t, nombre: `Campeón de la ${c}`, detalle: `último partido: ${u.gf}-${u.gc} al ${u.rival}${u.pen || ''}`, f: u.fecha, tipo: 'copa', slug: slugTrofeo(c)});
+      }
       // finales a doble partido: gana la eliminatoria quien lleva ventaja en el global (o los penaltis)
       const vueltas = s.ps.filter(p => p.oficial && esFinal(p) && /vuelta/.test(ronda(p)));
       for (const p of vueltas) if (p.res === 'W' || (p.global && p.global[0] > p.global[1])) out.push({t: s.t, nombre: `Campeón de la ${p.competicion}`, detalle: `final a doble partido ante el ${p.rival}`, f: p.fecha, tipo: 'copa', slug: slugTrofeo(p.competicion)});
@@ -251,7 +263,7 @@ const HIST = (() => {
     return `<section><div class="wrap"><h2 data-n="01">El viaje</h2>
       <p class="sub">Puntos de liga por temporada, goles a favor y en contra y cómo cambia el equipo entre la primera y la segunda vuelta. Se calcula solo con cada temporada nueva.</p>
       <div class="palm">${pal.titulos.map(x => `<div class="trofeo">${imagenTrofeo(x.slug)}<div><b>${esc(x.nombre)}</b><small>${x.t} · ${esc(x.detalle)}</small></div></div>`).join('') || '<div class="card vacio">Todavía sin títulos.</div>'}</div>
-      <p class="mini" style="margin:6px 0 0">Palmarés: solo títulos ganados (ligas y finales de copa o de playoff ganadas, detectadas por la ronda del calendario exportado de FM), del más prestigioso al menos.</p>
+      <p class="mini" style="margin:6px 0 0">Palmarés: solo títulos ganados (ligas, finales de copa y de playoff), del más prestigioso al menos. Una copa cuenta como ganada si su último partido fue la final o, cuando no se sabe la ronda, si se ganó el último partido de una copa ya terminada.</p>
       <div class="grid g2" style="margin-top:14px">
         <div class="card"><h4 style="margin-top:0">Ascensos</h4><ul class="facts" style="grid-template-columns:1fr">${pal.asc.map(s => `<li>▲ <b>${s.t}</b>: de la ${esc(LIGA_CORTA(s.liga))} a la ${esc(LIGA_CORTA(s.sig.liga))}${s.lg ? ` (${s.lg.pos}.º, ${s.lg.pts} pts${s.ps.some(p => p.ck === 'PO') ? ', vía playoff' : ''})` : ''}</li>`).join('') || '<li>Sin ascensos todavía.</li>'}</ul></div>
         <div class="card"><h4 style="margin-top:0">Mejor recorrido en cada copa</h4><ul class="facts" style="grid-template-columns:1fr">${Object.entries(mejoresCopas).map(([k, x]) => `<li><b>${esc(k)}</b>: ${x.gano ? '★ campeón' : esc(x.r || x.ps.length + ' partidos')} en ${x.t}${x.gano ? '' : ` · eliminado por el ${esc(x.u.rival)} (${x.u.gf}-${x.u.gc}${x.u.pen ? esc(x.u.pen) : ''})`}</li>`).join('') || '<li>Sin partidos de copa.</li>'}</ul></div>
@@ -599,7 +611,7 @@ const HIST = (() => {
     const ult = D.finanzas[D.finanzas.length - 1] || {};
     const eb = l => { const s = [...l].sort((a, b) => b.temporada_pasada_eur - a.temporada_pasada_eur).slice(0, 14), m = Math.max(...s.map(x => x.temporada_pasada_eur), 1); return s.map(x => `<div class="row" style="grid-template-columns:150px 1fr 100px"><span title="${esc(x.concepto)}">${esc(x.concepto)}</span><div class="bg"><div class="fg ${x.tipo === 'ingresos' ? 'g' : ''}" style="width:${x.temporada_pasada_eur / m * 100}%"></div></div><b style="width:auto;white-space:nowrap">${eur(x.temporada_pasada_eur)}</b></div>`).join(''); };
     return `<h4>Economía ${esc(tPrev || '')}: partidas de ingresos y gastos</h4>
-      <p class="sub" style="margin:0 0 12px">De la pantalla de finanzas de FM exportada (la columna «temporada pasada»). Algunas partidas son subapartados de otras, así que no se suman.</p>
+      <p class="sub" style="margin:0 0 12px">Partidas de la pantalla de finanzas de FM (columna «temporada pasada»). Algunas son subapartados de otras, así que no se suman.</p>
       <div class="grid g4" style="margin-bottom:14px">${[[eur(ti), 'Ingresos totales (suma mensual)'], [eur(ti - tg), 'Resultado del ejercicio'], [eur((gas.find(x => /Sueldos de jug/.test(x.concepto)) || {}).temporada_pasada_eur), 'Sueldos de jugadores'],
         [eur(Math.round((ult.masa_salarial_semana || 0) * 5.067)), `Masa salarial mensual (tope ${eur(Math.round((ult.presupuesto_salarial_semana || 0) * 5.067))})`]].map(k => `<div class="card kpi"><b style="font-size:22px">${k[0]}</b><span>${k[1]}</span></div>`).join('')}</div>
       <div class="grid g2"><div class="card"><h4 style="margin-top:0">Ingresos · partidas principales</h4><div class="bars">${eb(ing)}</div></div><div class="card"><h4 style="margin-top:0">Gastos · partidas principales</h4><div class="bars">${eb(gas)}</div></div></div>`;
@@ -730,12 +742,12 @@ const HIST = (() => {
     const ss = S(), of = IDX.partidos.filter(p => p.oficial);
     const r = wdl(of), v = of.filter(p => p.res === 'W').length, e = of.filter(p => p.res === 'D').length;
     return `<h2 style="font-size:24px;color:var(--ink)">Notas sobre los datos</h2><ul>
-      <li>Resultados leídos de la memoria del juego y de los calendarios exportados. Las tandas de penaltis cuentan como victoria o derrota, igual que en el historial del mánager (${v}V-${e}E-${of.length - v - e}D; sin tandas serían ${r.w}-${r.d}-${r.l}).</li>
-      <li>Partidos, goles y medias de cada jugador: tabla de carrera de FM. Sueldo, contrato, valor, posición y atributos: la última ficha de cada temporada (memoria o exportaciones de plantilla, cuya fecha de juego se deduce de las edades).</li>
+      <li>Todo se lee de la memoria del juego mientras juegas (las exportaciones antiguas solo completan lo que la memoria ya no guarda). Las tandas de penaltis cuentan como victoria o derrota, igual que en el historial del mánager (${v}V-${e}E-${of.length - v - e}D; sin tandas serían ${r.w}-${r.d}-${r.l}).</li>
+      <li>Partidos, goles y medias de cada jugador: tabla de carrera de FM. Sueldo, contrato, posición y atributos: la ficha del jugador en memoria (de temporadas antiguas, las exportaciones que había). El valor de mercado es el último que se vio en pantalla.</li>
       <li>Clasificaciones copiadas de las tablas del juego al abrirlas. Ascensos y descensos de los rivales se deducen de en qué liga juega cada uno la temporada siguiente.</li>
-      <li>Rondas de copa, formaciones y próximo partido: del calendario exportado (Ctrl+P). Las alineaciones con jugadores, si el calendario se exporta con esa columna.</li>
+      <li>Próximo partido y calendario: de la memoria del juego. Rondas de copa y formaciones: de los calendarios antiguos que había; sin ellos, una copa se da por ganada si se gana su último partido.</li>
       <li>Los goles por jugador de la tabla de carrera pueden diferir en alguno de la suma de goleadores de los partidos (goles en propia puerta y goles sin jugador identificado).</li>
-      <li>El desglose económico sale de la pantalla de finanzas exportada; el saldo mes a mes, de la memoria.</li></ul>`;
+      <li>Saldo, ingresos y gastos mes a mes: de la memoria. El desglose por partidas, del que había guardado.</li></ul>`;
   }
 
   // ---------------------------------------------------------------- exportación para Claude (también en la web pública)

@@ -84,6 +84,7 @@ function preparar() {
   for (const t of D.traspasos) if (t.iu) IDX.nombres[t.iu] = t.jugador;
   for (const p of D.plantilla) IDX.nombres[p.iu] = p.nombre;
   IDX.enPlantilla = new Set(D.plantilla.map(p => p.iu));
+  for (const p of D.plantilla) if (p.posicion) IDX.export[p.iu] = {...(IDX.export[p.iu] || {}), posicion: p.posicion};
   IDX.evol = {};
   for (const e of D.evolucion || []) (IDX.evol[e.iu] ||= []).push(e);
   const caps = D.capturas.filter(c => c.origen === 'memoria' && c.fecha_juego);
@@ -168,8 +169,8 @@ V.inicio = () => {
   const tras = [...IDX.traspasos].slice(-6).reverse();
   const ultJugado = IDX.partidos.length ? IDX.partidos[IDX.partidos.length - 1].fecha : '';
   const prox = (D.proximos || []).find(x => x.fecha > ultJugado);
-  const proxHtml = prox ? `<p class="prox">Próximo: ${prox.en_casa === 0 ? 'fuera ante el' : 'en casa ante el'} <b>${esc(prox.rival)}</b> · ${fecha(prox.fecha)}${prox.hora ? ' ' + esc(prox.hora) : ''} · ${esc(prox.competicion || '')}</p>`
-    : '<p class="prox mini">Próximo partido: exporta el calendario de esta temporada desde FM (Ctrl+P en la pantalla de calendario) y aparecerá aquí.</p>';
+  const proxHtml = prox ? `<p class="prox">Próximo: ${prox.en_casa === 0 ? 'fuera ante el' : 'en casa ante el'} <b>${esc(prox.rival)}</b> · ${fecha(prox.fecha)}${prox.hora ? ' ' + esc(prox.hora) : ''} · ${esc(prox.competicion || '')}${prox.estadio ? ' · ' + esc(prox.estadio) : ''}</p>`
+    : '<p class="prox mini">Próximo partido: aparece en cuanto FM Hub lea el calendario del juego (con FM abierto y la partida cargada).</p>';
   const qr = (window.FMHUB_ESTATICO || window.FMHUB_PUBLICADO) ? '' : `
     <div class="card"><h4 style="margin-top:0">Abrir en el móvil</h4>
       <div class="qr"><img src="qr.svg" alt="Código QR de la web"><div>
