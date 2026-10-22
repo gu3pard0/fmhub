@@ -522,6 +522,7 @@ V.rivales = arg => HIST.rivales(arg);
 V.goles = () => HIST.goles();
 V.hitos = () => HIST.hitos();
 V.plan = () => HIST.plan();
+V.tactica = () => TAC.vista();
 
 // ---------------------------------------------------------------- ficha emergente, aparición suave y cifras animadas (como varela.html)
 function ficha(iu) {
@@ -559,7 +560,7 @@ function contar() {
 
 // recarga los datos sin perder la vista (cada 2 minutos, o al momento cuando FM Hub captura algo nuevo)
 async function recargarDatos() {
-  try { D = await cargar(); preparar(); cabecera(); if (!document.activeElement?.matches('input')) pintar(); } catch (e) {}
+  try { D = await cargar(); preparar(); cabecera(); if (!document.activeElement?.matches('input,select')) pintar(); } catch (e) {}
 }
 
 // ---------------------------------------------------------------- navegación
