@@ -188,7 +188,7 @@ footer ul{padding-left:18px}
 
 /* Mi táctica: campo con el once y editor del puesto */
 .tac-barra{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:6px 0 14px}
-.tac-barra select,.tac-ed select{padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font:inherit}
+.tac-barra select,.tac-ed select,.tac-barra input,.tac-ed input{padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font:inherit}
 .tac{display:grid;grid-template-columns:minmax(280px,420px) 1fr;gap:16px;align-items:start}
 .campo{position:relative;aspect-ratio:68/100;border-radius:14px;overflow:hidden;background:repeating-linear-gradient(180deg,#1f5c33 0 10%,#226638 10% 20%);border:2px solid #2e7a45;box-shadow:inset 0 0 0 2px rgba(255,255,255,.08)}
 .campo-lineas{position:absolute;inset:4%;border:2px solid rgba(255,255,255,.35);border-radius:4px;pointer-events:none}
@@ -206,3 +206,4 @@ footer ul{padding-left:18px}
 .tac-add{display:flex;gap:8px;align-items:center;margin-top:10px;font-size:13px}.tac-add select{flex:1;min-width:0}
 @media(max-width:820px){.tac{grid-template-columns:1fr}.campo{max-width:420px;width:100%;margin:0 auto}}
 @media(max-width:520px){.op{grid-template-columns:1fr auto;}.op .nro{grid-column:1/-1}.slot{min-width:62px}.slot span{font-size:11px}}
+.tac-edf{display:flex;gap:10px;flex-wrap:wrap}.tac-ed input{width:120px}.tac-barra input{width:min(320px,60vw)}

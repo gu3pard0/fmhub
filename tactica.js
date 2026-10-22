@@ -4,6 +4,10 @@
 // Se guarda en data/tactica.json desde la web local; en la web publicada, solo en este navegador.
 const TAC = (() => {
   const FORMACIONES = {
+    // la de Airam: «Perfect Strangers 42112 WIWBA P107 EF» (dos mediocentros defensivos, extremo a la izquierda y
+    // delantero interior por la derecha detrás de dos puntas)
+    '4-2-2-2 asimétrica': [['POR', 50, 92], ['DF-I', 13, 76], ['DF-C', 37, 79], ['DF-C', 63, 79], ['DF-D', 87, 76], ['MC', 37, 56], ['MC', 63, 59],
+      ['ME-I', 13, 47], ['MP-D', 87, 28], ['DL-C', 37, 11], ['DL-C', 63, 14]],
     '4-4-2': [['POR', 50, 90], ['DF-I', 14, 70], ['DF-C', 37, 75], ['DF-C', 63, 75], ['DF-D', 86, 70], ['ME-I', 14, 45], ['ME-C', 37, 49], ['ME-C', 63, 49], ['ME-D', 86, 45], ['DL-C', 37, 17], ['DL-C', 63, 17]],
     '4-2-3-1': [['POR', 50, 90], ['DF-I', 14, 70], ['DF-C', 37, 75], ['DF-C', 63, 75], ['DF-D', 86, 70], ['ME-C', 37, 55], ['ME-C', 63, 55], ['MP-I', 14, 32], ['MP-C', 50, 34], ['MP-D', 86, 32], ['DL-C', 50, 13]],
     '4-3-3': [['POR', 50, 90], ['DF-I', 14, 70], ['DF-C', 37, 75], ['DF-C', 63, 75], ['DF-D', 86, 70], ['MC', 50, 59], ['ME-C', 30, 44], ['ME-C', 70, 44], ['MP-I', 14, 21], ['DL-C', 50, 13], ['MP-D', 86, 21]],
@@ -14,6 +18,8 @@ const TAC = (() => {
     '3-4-3': [['POR', 50, 90], ['DF-C', 27, 74], ['DF-C', 50, 77], ['DF-C', 73, 74], ['ME-I', 12, 47], ['ME-C', 37, 50], ['ME-C', 63, 50], ['ME-D', 88, 47], ['MP-I', 17, 22], ['DL-C', 50, 14], ['MP-D', 83, 22]],
     '5-3-2': [['POR', 50, 90], ['CR-I', 10, 62], ['DF-C', 30, 75], ['DF-C', 50, 78], ['DF-C', 70, 75], ['CR-D', 90, 62], ['ME-C', 28, 45], ['ME-C', 50, 48], ['ME-C', 72, 45], ['DL-C', 37, 16], ['DL-C', 63, 16]],
   };
+  // roles por defecto de cada formación (se cambian en el editor del puesto)
+  const ROLES = {'4-2-2-2 asimétrica': ['PCI · De', 'CIN · At', 'DCT · De', 'DCT · De', 'LAT · At', 'VOL · At', 'MC · Ap', 'EXT · Ap', 'DLI · Ap', 'DLA · At', 'DP · Ap']};
   const PUESTOS = {POR: 'Portero', 'DF-D': 'Lateral derecho', 'DF-C': 'Central', 'DF-I': 'Lateral izquierdo', 'CR-D': 'Carrilero derecho', 'CR-I': 'Carrilero izquierdo',
     MC: 'Mediocentro defensivo', 'ME-D': 'Medio derecho', 'ME-C': 'Mediocentro', 'ME-I': 'Medio izquierdo', 'MP-D': 'Extremo derecho', 'MP-C': 'Mediapunta', 'MP-I': 'Extremo izquierdo', 'DL-C': 'Delantero centro'};
   // puestos parecidos (para proponer candidatos y para rellenar el once)
@@ -54,7 +60,7 @@ const TAC = (() => {
   }
 
   // ---------------------------------------------------------------- estado y guardado
-  function nueva(f) { return {formacion: f, slots: FORMACIONES[f].map(([code]) => ({code, opciones: []}))}; }
+  function nueva(f) { return {formacion: f, slots: FORMACIONES[f].map(([code], i) => ({code, rol: (ROLES[f] || [])[i] || '', opciones: []}))}; }
   function cargarTactica() {
     if (t) return;
     let guardada = D.tactica;
@@ -114,7 +120,7 @@ const TAC = (() => {
     const campo = t.slots.map((s, i) => {
       const o = s.opciones[0], [, x, y] = pos[i] || ['', 50, 50];
       return `<button type="button" class="slot${i === sel ? ' sel' : ''}${o ? '' : ' vacio'}" data-tslot="${i}" style="left:${x}%;top:${y}%">
-        <b>${corto(s.code)}</b><span title="${o ? esc(nombre(o.iu)) : ''}">${o ? esc(nombre(o.iu).split(' ').slice(1).join(' ') || nombre(o.iu)) : 'Sin nadie'}</span><small>${o ? (o.estrellas ? verEst(o.estrellas) : 'sin ★') : ''}${s.opciones.length > 1 ? ` · +${s.opciones.length - 1}` : ''}</small></button>`;
+        <b>${s.rol ? esc(s.rol) : corto(s.code)}</b><span title="${o ? esc(nombre(o.iu)) : ''}">${o ? esc(nombre(o.iu).split(' ').slice(1).join(' ') || nombre(o.iu)) : 'Sin nadie'}</span><small>${o ? (o.estrellas ? verEst(o.estrellas) : 'sin ★') : ''}${s.opciones.length > 1 ? ` · +${s.opciones.length - 1}` : ''}</small></button>`;
     }).join('');
     const s = t.slots[sel];
     const enSlot = new Set(s.opciones.map(o => o.iu));
@@ -129,15 +135,16 @@ const TAC = (() => {
       return `<div class="op"><span class="nro">${k === 0 ? 'Titular' : k + 1 + 'º'}</span><div class="opn">${jug(o.iu, nombre(o.iu))}<small>${natural ? '' : 'fuera de su puesto natural · '}${r.n ? `rinde ${d2(r.n)}` : 'sin partidos suficientes'}${r.pjA ? ` · ${r.pjA} partidos y ${miles(r.minA)} min esta temporada` : ''}${otro}</small></div>
         ${estrellas(o.estrellas || 0, k)}<span class="opb"><button type="button" data-tup="${k}" aria-label="Subir" ${k ? '' : 'disabled'}>▲</button><button type="button" data-tdown="${k}" aria-label="Bajar" ${k < s.opciones.length - 1 ? '' : 'disabled'}>▼</button><button type="button" data-tdel="${k}" aria-label="Quitar">✕</button></span></div>`;
     }).join('');
-    const editor = `<div class="card tac-ed"><div class="tac-edc"><h4 style="margin:0">${esc(PUESTOS[s.code] || s.code)}</h4>
-        <label class="mini">Puesto <select data-tcode>${Object.keys(PUESTOS).map(c => `<option value="${c}" ${c === s.code ? 'selected' : ''}>${corto(c)} · ${PUESTOS[c]}</option>`).join('')}</select></label></div>
+    const editor = `<div class="card tac-ed"><div class="tac-edc"><h4 style="margin:0">${esc(PUESTOS[s.code] || s.code)}${s.rol ? ` · ${esc(s.rol)}` : ''}</h4>
+        <span class="tac-edf"><label class="mini">Puesto <select data-tcode>${Object.keys(PUESTOS).map(c => `<option value="${c}" ${c === s.code ? 'selected' : ''}>${corto(c)} · ${PUESTOS[c]}</option>`).join('')}</select></label>
+        <label class="mini">Rol <input data-trol value="${esc(s.rol || '')}" placeholder="p. ej. DLA · At" maxlength="24"></label></span></div>
       <p class="mini" style="margin:4px 0 10px">Ordena de más a menos: el primero es tu titular. Las estrellas son su calidad en este puesto (como las del cuerpo técnico); el rendimiento lo pone FM Hub.</p>
       ${filas || '<p class="vacio">Nadie todavía para este puesto.</p>'}
       <label class="tac-add">Añadir <select data-tadd><option value="">Elige un jugador…</option>${grupoCand('En su puesto natural', nat)}${grupoCand('Puestos parecidos', cer)}${grupoCand('Resto de la plantilla', resto)}</select></label></div>`;
     const vacia = t.slots.every(x => !x.opciones.length);
     return `<section><div class="wrap"><h2 data-n="12">Mi táctica</h2>
       <p class="sub">Pon tu once, todas las opciones de cada puesto en tu orden y sus estrellas (su calidad, no cómo juegan). FM Hub lo cruza con lo que ve en todos los partidos (medias, minutos, sueldos, edades y contratos) y te dice dónde falta profundidad, a quién vender y a quién dar más minutos.${LOCAL ? ' Se guarda solo en FM Hub.' : ' En la web publicada los cambios se quedan solo en este navegador.'}</p>
-      <div class="tac-barra"><label>Formación <select data-tform>${Object.keys(FORMACIONES).map(f => `<option ${f === t.formacion ? 'selected' : ''}>${f}</option>`).join('')}</select></label>
+      <div class="tac-barra"><label>Táctica <input data-tnombre value="${esc(t.nombre || '')}" placeholder="Nombre de tu táctica en FM" maxlength="60"></label><label>Formación <select data-tform>${Object.keys(FORMACIONES).map(f => `<option ${f === t.formacion ? 'selected' : ''}>${f}</option>`).join('')}</select></label>
         <button type="button" class="chip" data-trell>${vacia ? 'Rellenar con lo que ve FM Hub' : 'Volver a rellenar con lo que ve FM Hub'}</button><span class="mini" id="tacEstado">${esc(estadoGuardado)}</span></div>
       <div class="tac"><div class="campo"><div class="campo-lineas"></div>${campo}</div>${editor}</div>
       ${consejos(R, nombre)}
@@ -249,9 +256,12 @@ const TAC = (() => {
     if (e.matches('[data-tform]')) {
       // al cambiar de formación se conservan las opciones de los puestos que siguen existiendo
       const viejos = t.slots.map(s => ({...s})), nuevos = nueva(e.value);
-      for (const s of nuevos.slots) { const i = viejos.findIndex(v => v.code === s.code); if (i >= 0) s.opciones = viejos.splice(i, 1)[0].opciones; }
+      for (const s of nuevos.slots) { const i = viejos.findIndex(v => v.code === s.code); if (i >= 0) { const v = viejos.splice(i, 1)[0]; s.opciones = v.opciones; if (!ROLES[e.value] && v.rol) s.rol = v.rol; } }
+      nuevos.nombre = t.nombre;
       t = nuevos; sel = Math.min(sel, 10);
     } else if (e.matches('[data-tcode]')) t.slots[sel].code = e.value;
+    else if (e.matches('[data-trol]')) t.slots[sel].rol = e.value.trim();
+    else if (e.matches('[data-tnombre]')) t.nombre = e.value.trim();
     else if (e.matches('[data-tadd]') && e.value) t.slots[sel].opciones.push({iu: +e.value, estrellas: 0});
     else return;
     guardar(); pintar();
