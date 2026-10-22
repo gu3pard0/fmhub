@@ -49,14 +49,38 @@ const TAC = (() => {
   function rendimiento() {
     const ss = HIST.S(), prev = [...ss].reverse().find(s => s.completa && s.t !== IDX.temporadaActual);
     const pq = {}; for (const p of prev?.sq || []) pq[p.iu] = p;
-    const out = {};
+    const out = {}, car = {};
+    for (const x of ss) for (const q of x.sq) if (q.avg && q.pj) { const c = (car[q.iu] ||= {s: 0, pj: 0, temps: 0}); c.s += q.avg * q.pj; c.pj += q.pj; c.temps++; }
     for (const p of D.plantilla) {
-      const a = (IDX.stats[p.iu] || {}).total || {}, q = pq[p.iu] || {};
+      const a = (IDX.stats[p.iu] || {}).total || {}, q = pq[p.iu] || {}, c = car[p.iu];
       const pjA = a.partidos || 0, pjP = q.pj || 0, nA = a.nota_media || 0, nP = q.avg || 0;
       const w = (nA ? pjA * 1.5 : 0) + (nP ? pjP : 0);
-      out[p.iu] = {n: w >= 3 ? ((nA ? nA * pjA * 1.5 : 0) + (nP ? nP * pjP : 0)) / w : null, pjA, minA: a.minutos || 0, nA, pjP, nP, minP: q.min || 0, prevT: prev?.t};
+      out[p.iu] = {n: w >= 3 ? ((nA ? nA * pjA * 1.5 : 0) + (nP ? nP * pjP : 0)) / w : null, pjA, minA: a.minutos || 0, nA, pjP, nP, minP: q.min || 0, prevT: prev?.t,
+        nCar: c && c.pj >= 5 ? c.s / c.pj : null, pjCar: c ? c.pj : 0, temps: c ? c.temps : 0};
     }
     return out;
+  }
+
+  // medianas del equipo (sin cedidos): media, sueldo y minutos máximos de la temporada
+  function referencias(R) {
+    const plantilla = D.plantilla.filter(p => !p.cedido_a);
+    const med = arr => { const x = arr.filter(v => v).sort((a, b) => a - b); return x.length ? x[Math.floor(x.length / 2)] : 0; };
+    return {plantilla, mNota: med(plantilla.map(p => R[p.iu].pjA + R[p.iu].pjP >= 8 ? R[p.iu].n : 0)) || 6.8,
+            mSueldo: med(plantilla.map(p => p.sueldo_mes_eur)), maxMin: Math.max(1, ...plantilla.map(p => R[p.iu].minA))};
+  }
+  // «Mejor opción»: cuánto merece jugar en este puesto. Mezcla tu calidad (estrellas) con lo que ve FM Hub:
+  // media de esta temporada (50 %), de la anterior (30 %) y de toda su etapa en el club (20 %) frente a la del
+  // equipo (0,25 de media = 1 estrella), si es su puesto natural y los minutos que ya lleva.
+  function prioridad(o, code, R, ref) {
+    const r = R[o.iu] || {};
+    const partes = [[r.pjA >= 3 && r.nA, .5], [r.pjP >= 5 && r.nP, .3], [r.pjCar >= 10 && r.nCar, .2]].filter(([v]) => v);
+    const w = partes.reduce((a, [, k]) => a + k, 0);
+    const media = w ? partes.reduce((a, [v, k]) => a + v * k, 0) / w : null;
+    const calidad = o.estrellas || 2.5;
+    const rend = media ? (media - ref.mNota) * 4 : 0;
+    const pos = posDe(o.iu), encaje = pos.has(code) ? .5 : (CERCA[code] || []).some(c => pos.has(c)) ? 0 : -.75;
+    const forma = r.minA / ref.maxMin * .3;
+    return {total: calidad + rend + encaje + forma, media, calidad, rend, encaje};
   }
 
   // ---------------------------------------------------------------- estado y guardado
@@ -129,16 +153,18 @@ const TAC = (() => {
     const nat = cand.filter(p => posDe(p.iu).has(s.code)), cer = cand.filter(p => !nat.includes(p) && (CERCA[s.code] || []).some(c => posDe(p.iu).has(c)));
     const resto = cand.filter(p => !nat.includes(p) && !cer.includes(p));
     const titularEn = {}; t.slots.forEach((x, i) => { if (x.opciones[0]) titularEn[x.opciones[0].iu] = i; });
+    const ref = referencias(R);
     const filas = s.opciones.map((o, k) => {
-      const r = R[o.iu] || {}, natural = posDe(o.iu).has(s.code);
+      const r = R[o.iu] || {}, natural = posDe(o.iu).has(s.code), pr = prioridad(o, s.code, R, ref);
       const otro = titularEn[o.iu] !== undefined && titularEn[o.iu] !== sel ? ` · titular en ${corto(t.slots[titularEn[o.iu]].code)}` : '';
-      return `<div class="op"><span class="nro">${k === 0 ? 'Titular' : k + 1 + 'º'}</span><div class="opn">${jug(o.iu, nombre(o.iu))}<small>${natural ? '' : 'fuera de su puesto natural · '}${r.n ? `rinde ${d2(r.n)}` : 'sin partidos suficientes'}${r.pjA ? ` · ${r.pjA} partidos y ${miles(r.minA)} min esta temporada` : ''}${otro}</small></div>
+      return `<div class="op"><span class="nro">${k === 0 ? 'Titular' : k + 1 + 'º'}</span><div class="opn">${jug(o.iu, nombre(o.iu))}<small>${natural ? '' : 'fuera de su puesto natural · '}${r.n ? `rinde ${d2(r.n)}` : 'sin partidos suficientes'}${r.pjA ? ` · ${r.pjA} partidos y ${miles(r.minA)} min esta temporada` : ''}${otro} · <span title="Calidad ${String(pr.calidad).replace('.', ',')} · rendimiento ${pr.rend >= 0 ? '+' : ''}${d2(pr.rend)} · puesto ${pr.encaje >= 0 ? '+' : ''}${d2(pr.encaje)}">prioridad ${d2(pr.total)}</span></small></div>
         ${estrellas(o.estrellas || 0, k)}<span class="opb"><button type="button" data-tup="${k}" aria-label="Subir" ${k ? '' : 'disabled'}>▲</button><button type="button" data-tdown="${k}" aria-label="Bajar" ${k < s.opciones.length - 1 ? '' : 'disabled'}>▼</button><button type="button" data-tdel="${k}" aria-label="Quitar">✕</button></span></div>`;
     }).join('');
     const editor = `<div class="card tac-ed"><div class="tac-edc"><h4 style="margin:0">${esc(PUESTOS[s.code] || s.code)}${s.rol ? ` · ${esc(s.rol)}` : ''}</h4>
         <span class="tac-edf"><label class="mini">Puesto <select data-tcode>${Object.keys(PUESTOS).map(c => `<option value="${c}" ${c === s.code ? 'selected' : ''}>${corto(c)} · ${PUESTOS[c]}</option>`).join('')}</select></label>
         <label class="mini">Rol <input data-trol value="${esc(s.rol || '')}" placeholder="p. ej. DLA · At" maxlength="24"></label></span></div>
       <p class="mini" style="margin:4px 0 10px">Ordena de más a menos: el primero es tu titular. Las estrellas son su calidad en este puesto (como las del cuerpo técnico); el rendimiento lo pone FM Hub.</p>
+      ${s.opciones.length > 1 ? `<div class="tac-ord"><span class="mini">Ordenar:</span><button type="button" class="chip" data-tord="est">Por estrellas</button><button type="button" class="chip" data-tord="media">Por media</button><button type="button" class="chip" data-tord="mejor" title="Mezcla tus estrellas con la media de esta temporada, la anterior y toda su etapa en el club, si es su puesto natural y los minutos que lleva">Mejor opción</button></div>` : ''}
       ${filas || '<p class="vacio">Nadie todavía para este puesto.</p>'}
       <label class="tac-add">Añadir <select data-tadd><option value="">Elige un jugador…</option>${grupoCand('En su puesto natural', nat)}${grupoCand('Puestos parecidos', cer)}${grupoCand('Resto de la plantilla', resto)}</select></label></div>`;
     const vacia = t.slots.every(x => !x.opciones.length);
@@ -153,11 +179,7 @@ const TAC = (() => {
 
   // ---------------------------------------------------------------- lo que ve FM Hub
   function consejos(R, nombre) {
-    const plantilla = D.plantilla.filter(p => !p.cedido_a);
-    const med = arr => { const s = arr.filter(v => v).sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : 0; };
-    const mNota = med(plantilla.map(p => R[p.iu].pjA + R[p.iu].pjP >= 8 ? R[p.iu].n : 0));
-    const mSueldo = med(plantilla.map(p => p.sueldo_mes_eur));
-    const maxMin = Math.max(1, ...plantilla.map(p => R[p.iu].minA));
+    const ref = referencias(R), {plantilla, mNota, mSueldo, maxMin} = ref;
     const fj = IDX.fechaJuego ? new Date(IDX.fechaJuego) : new Date();
     const titularEn = {}, mejor = {};   // dónde es titular y su mejor puesto (el más alto en tu orden)
     t.slots.forEach((s, i) => s.opciones.forEach((o, k) => {
@@ -234,8 +256,53 @@ const TAC = (() => {
       <div class="card kpi"><b style="font-size:22px">${(rs => rs.length ? d2(media(rs)) : '—')(titulares.map(o => R[o.iu]?.n).filter(Boolean))}</b><span>Rendimiento del once</span><small>media de las medias (equipo: ${d2(mNota)})</small></div>
       <div class="card kpi"><b style="font-size:22px">${eur(sueldoBanquillo)}</b><span>Sueldos de los que no son titulares</span><small>al mes</small></div></div>`;
     out.sort((a, b) => a.peso - b.peso);
-    return `<h4>Lo que ve FM Hub</h4>${kpis}${vacia ? '<p class="vacio">Pon tu once (o pulsa «Rellenar con lo que ve FM Hub») y aquí aparecerán los consejos.</p>'
+    return `<h4>Lo que ve FM Hub</h4>${kpis}${vacia ? '' : vistazo(R, nombre, ref, titularEn, mejor, fj)}${vacia ? '<p class="vacio">Pon tu once (o pulsa «Rellenar con lo que ve FM Hub») y aquí aparecerán los consejos.</p>'
       : `${conEst ? '' : '<p class="mini">Aún no has puesto estrellas: sin ellas FM Hub no puede comparar calidad con rendimiento ni decir de qué nivel buscar.</p>'}<div class="pgrid">${out.map(x => x.html).join('') || '<p class="vacio">Todo cubierto: cada puesto tiene recambio y nadie desentona.</p>'}</div>`}`;
+  }
+
+  // ---------------------------------------------------------------- tabla de un vistazo: qué hacer con cada jugador
+  const ACCIONES = {renovar: ['Renovar', 'now', 1], vender: ['Vender', 'sell', 0], minutos: ['Más minutos', 'min', 2], ceder: ['Ceder', 'min', 4], dejar: ['Dejar ir', 'sell', 3],
+    relevo: ['Buscar relevo', 'now', 5], debajo: ['Rinde por debajo', 'now', 6], pilar: ['Pilar', 'ok', 8], titular: ['Titular', 'ok', 9], rotacion: ['Rotación', 'neutro', 10],
+    sinsitio: ['Sin sitio', 'sell', 7], cedido: ['Cedido', 'neutro', 11]};
+  let filtro = 'todos';
+  function vistazo(R, nombre, ref, titularEn, mejor, fj) {
+    const {mNota, mSueldo, maxMin} = ref;
+    const filas = D.plantilla.map(p => {
+      const r = R[p.iu], m = mejor[p.iu], tit = titularEn[p.iu] !== undefined, e = edad(p.fecha_nacimiento);
+      const fin = p.fin_contrato ? new Date(p.fin_contrato) : null, acaba = fin && (fin - fj) / 864e5 < 365;
+      const acc = [];
+      if (p.cedido_a) acc.push('cedido');
+      else {
+        if (!tit && p.sueldo_mes_eur >= mSueldo * 1.2 && r.minA <= maxMin * .35) acc.push('vender');
+        const vende = acc.includes('vender');
+        if (!vende && acaba && (tit || (r.n && r.n >= mNota))) acc.push('renovar');
+        else if (!vende && acaba && !tit && !(e <= 21)) acc.push('dejar');
+        // más minutos: rinde por encima del equipo o de su titular y juega poco
+        const titDeSuPuesto = m && t.slots[m.i].opciones[0];
+        const masQueTit = titDeSuPuesto && titDeSuPuesto.iu !== p.iu && r.n && R[titDeSuPuesto.iu]?.n && r.n >= R[titDeSuPuesto.iu].n + .15;
+        if (!tit && r.n && r.pjA + r.pjP >= 5 && ((r.n >= mNota + .1 && r.minA < maxMin * .5) || masQueTit)) acc.push('minutos');
+        if (!tit && e && e <= 21 && r.minA < maxMin * .2 && !acc.includes('minutos')) acc.push('ceder');
+        if (tit && e >= 31) acc.push('relevo');
+        if (m?.est >= 3.5 && r.n && r.pjA + r.pjP >= 8 && r.n < mNota - .1) acc.push('debajo');
+        if (!m && !acc.length) acc.push('sinsitio');
+        if (!acc.length) acc.push(tit ? (r.n && r.n >= mNota ? 'pilar' : 'titular') : 'rotacion');
+      }
+      acc.sort((a, b) => ACCIONES[a][2] - ACCIONES[b][2]);
+      const donde = m ? `${m.k === 0 ? 'Titular' : m.k + 1 + 'º'} · ${t.slots[m.i].rol ? esc(t.slots[m.i].rol) : corto(t.slots[m.i].code)}` : (p.cedido_a ? 'Cedido en el ' + esc(p.cedido_a) : '—');
+      return {p, r, m, e, acc, donde, orden: ACCIONES[acc[0]][2]};
+    });
+    const cuenta = k => filas.filter(f => f.acc.includes(k)).length;
+    const filtros = [['todos', 'Todos', filas.length], ['minutos', 'Más minutos', cuenta('minutos')], ['vender', 'Vender', cuenta('vender')], ['renovar', 'Renovar', cuenta('renovar')],
+      ['dejar', 'Dejar ir', cuenta('dejar')], ['ceder', 'Ceder', cuenta('ceder')], ['relevo', 'Buscar relevo', cuenta('relevo')]].filter(([k, , n]) => k === 'todos' || n);
+    if (!filtros.some(([k]) => k === filtro)) filtro = 'todos';
+    const vis = filas.filter(f => filtro === 'todos' || f.acc.includes(filtro)).sort((a, b) => a.orden - b.orden || (b.p.sueldo_mes_eur || 0) - (a.p.sueldo_mes_eur || 0));
+    const nota = (n, pj) => n ? `${d2(n)}<small> ${pj}p</small>` : '—';
+    return `<div class="tac-vis"><div class="calc" style="margin:4px 0 10px">${filtros.map(([k, txt, n]) => `<button type="button" class="chip" data-tfil="${k}" aria-pressed="${filtro === k}">${txt} · ${n}</button>`).join('')}</div>
+      <div class="tw"><table class="tvis"><thead><tr><th>Jugador</th><th>Qué hacer</th><th>En tu táctica</th><th class="n">★</th><th class="n">Media temp.</th><th class="n">Media club</th><th class="n">Min temp.</th><th class="n">€/mes</th><th>Contrato</th><th class="n">Edad</th></tr></thead><tbody>
+      ${vis.map(f => `<tr><td>${jug(f.p.iu, f.p.nombre)}</td><td>${f.acc.map(a => `<span class="acc ${ACCIONES[a][1]}">${ACCIONES[a][0]}</span>`).join(' ')}</td><td class="mini">${f.donde}</td>
+        <td class="n">${f.m?.est ? verEst(f.m.est) : '—'}</td><td class="n">${nota(f.r.nA, f.r.pjA)}</td><td class="n">${f.r.nCar ? d2(f.r.nCar) : '—'}</td><td class="n">${miles(f.r.minA)}</td>
+        <td class="n">${miles(f.p.sueldo_mes_eur || 0)}</td><td>${f.p.fin_contrato ? fecha(f.p.fin_contrato) : '—'}</td><td class="n">${f.e ?? '—'}</td></tr>`).join('')}</tbody></table></div>
+      <p class="mini" style="margin:6px 0 14px">Media del equipo: ${d2(mNota)} · sueldo mediano: ${eur(mSueldo)}. «Media club» es la de toda su etapa en el Dartford. Debajo, el porqué de cada cosa.</p></div>`;
   }
 
   // ---------------------------------------------------------------- eventos
@@ -247,6 +314,13 @@ const TAC = (() => {
     else if (ds.tdown !== undefined) { const k = +ds.tdown; [s.opciones[k + 1], s.opciones[k]] = [s.opciones[k], s.opciones[k + 1]]; guardar(); }
     else if (ds.tdel !== undefined) { s.opciones.splice(+ds.tdel, 1); guardar(); }
     else if (ds.tst) { const [k, n] = ds.tst.split(':').map(Number), o = s.opciones[k]; o.estrellas = o.estrellas === n ? n - .5 : n; guardar(); }
+    else if (ds.tord) {
+      const R = rendimiento(), ref = referencias(R);
+      const clave = ds.tord === 'est' ? o => (o.estrellas || 0) * 100 + prioridad(o, s.code, R, ref).total
+        : ds.tord === 'media' ? o => (R[o.iu]?.n || 0) * 100 + prioridad(o, s.code, R, ref).total : o => prioridad(o, s.code, R, ref).total;
+      s.opciones.sort((a, b) => clave(b) - clave(a)); guardar();
+    }
+    else if (ds.tfil) filtro = ds.tfil;
     else if (ds.trell !== undefined) { if (t.slots.some(x => x.opciones.length) && !confirm('¿Sustituir tu táctica por la que propone FM Hub? Se pierden tu orden y tus estrellas.')) return; rellenar(); guardar(); }
     else return;
     pintar();
