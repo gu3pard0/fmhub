@@ -175,6 +175,9 @@ footer ul{padding-left:18px}
 .vivo-rec li{font-size:12px;padding:3px 0;color:var(--mut)}.vivo-rec time{font-family:'JetBrains Mono';color:var(--ink)}
 .vivo-toasts{order:-2;display:flex;flex-direction:column;gap:6px;align-items:flex-end}
 .vivo-toast{background:var(--ink);color:var(--bg);padding:9px 13px;border-radius:10px;font-size:13px;box-shadow:0 10px 30px -12px rgba(0,0,0,.6);transition:opacity .6s,transform .6s}
-.vivo-toast.ok{border-left:4px solid var(--w)}
+.vivo-toast.ok{border-left:4px solid var(--w)}.vivo-toast.mal{border-left:4px solid var(--l)}
+.vivo-cap{justify-self:start;margin-top:6px;padding:5px 12px;border-radius:999px;border:1px solid var(--gold);background:transparent;color:inherit;font:600 12px inherit;cursor:pointer}
+.vivo-cap:hover{background:var(--gold);color:#111}.vivo-cap:disabled{opacity:.5;cursor:wait}
+.vivo-pet{color:var(--d)}.vivo-pet.mal{color:var(--l)}
 .vivo-toast.fuera{opacity:0;transform:translateY(8px)}
 @media (max-width:560px){.vivo-txt{max-width:56vw}}
