@@ -44,7 +44,7 @@ function preparar() {
       pen = ` (${pf}-${pc} pen.)`;
     }
     const det = detalle[p.fecha] || {};
-    return {...p, casa, rival: casa ? p.visitante : p.local, gf, gc, res, pen, formacion: det.formacion || '', formacion_rival: det.formacion_rival || '',
+    return {...p, casa, rival: casa ? p.visitante : p.local, gf, gc, res, pen, formacion: det.formacion || '', formacion_rival: det.formacion_rival || '', ronda: det.ronda || '',
             hora: det.hora || '', oficial: p.competicion !== 'Amistoso', clave: p.fecha + '|' + p.local + '|' + p.visitante};
   });
   // traspasos de verdad y promociones de la cantera (FM las apunta como altas sin club de origen)
@@ -144,11 +144,12 @@ function cabecera() {
   const viva = !window.FMHUB_ESTATICO && !window.FMHUB_PUBLICADO && hace < 5;
   $('#eyebrow').innerHTML = `<i class="dot ${viva ? 'on' : ''}" title="${viva ? 'FM Hub está leyendo el juego' : 'Sin lecturas recientes del juego'}"></i>FM Hub · ${esc(IDX.temporadaActual || '')}${IDX.fechaJuego ? ' · ' + esc(fecha(IDX.fechaJuego)) : ''}`;
   $('#titulo').innerHTML = `${esc(IDX.club)} <em>de Varela</em>`;
-  $('#lead').textContent = `Datos leídos de Football Manager 2024 mientras juegas. ${window.FMHUB_ESTATICO ? 'Copia autocontenida generada el ' + fecha(D.generado.slice(0, 10)) + '.' : 'Actualizado: ' + D.generado.replace('T', ' ').slice(0, 16) + '.'}`;
+  $('#lead').textContent = `${HIST.entradilla()} ${window.FMHUB_ESTATICO ? 'Copia autocontenida generada el ' + fecha(D.generado.slice(0, 10)) + '.' : 'Actualizado: ' + D.generado.replace('T', ' ').slice(0, 16) + '.'}`;
   const gf = of.reduce((s, p) => s + p.gf, 0), gc = of.reduce((s, p) => s + p.gc, 0);
   $('#bigs').innerHTML = HIST.bigsPalmares(of);
   $('#ladder').innerHTML = HIST.escalera();
-  $('#pie').innerHTML = `FM Hub · solo lectura: no modifica el juego ni la partida · ${esc(D.generado.replace('T', ' ').slice(0, 16))}`;
+  $('#pie').innerHTML = HIST.notas() + `<p class="mini">FM Hub · solo lectura: no modifica el juego ni la partida · ${esc(D.generado.replace('T', ' ').slice(0, 16))}</p>`;
+  if (!cabecera.hecha) { cabecera.hecha = true; contar(); }
 }
 
 // ---------------------------------------------------------------- vistas
@@ -333,14 +334,20 @@ V.traspasos = () => {
   for (const t of IDX.traspasos) (porT[tempDe(t.fecha)] ||= []).push(t);
   const cant = {};
   for (const t of IDX.cantera) (cant[tempDe(t.fecha)] ||= []).push(t);
-  const gasto = (l, e) => l.filter(t => !!t.entra === e && !t.cesion).reduce((s, t) => s + (t.precio_eur || 0), 0);
-  const bloque = (lista, entra) => lista.filter(t => !!t.entra === entra).map(t =>
-    `<div class="tri"><span class="d">${fecha(t.fecha)}</span><span>${jug(t.iu, t.jugador)} <span class="mini">${entra ? 'de' : 'a'} ${esc(t.otro_club || 'agente libre')}${t.origen === 'varela.html' ? ' · de varela.html' : ''}</span></span><span class="f ${entra ? 'out' : 'in'}">${t.cesion ? 'cesión' : t.precio_eur ? eur(t.precio_eur) : 'libre'}</span></div>`).join('') || '<p class="vacio">Ninguno.</p>';
+  const temps = [...new Set([...Object.keys(porT), ...Object.keys(cant)])].sort();
+  const sel = V.traspasos.t && temps.includes(V.traspasos.t) ? V.traspasos.t : temps[temps.length - 1];
+  const lista = porT[sel] || [];
+  const gasto = e => lista.filter(t => !!t.entra === e && !t.cesion).reduce((s, t) => s + (t.precio_eur || 0), 0);
+  const pl = (n, uno, varios = uno + 's') => `${n} ${n === 1 ? uno : varios}`;
+  const fila = t => `<div class="tri"><span class="d">${fecha(t.fecha)}</span><span><b>${jug(t.iu, t.jugador)}</b> <span style="color:var(--mut)">${esc(t.otro_club || 'agente libre')}${t.origen === 'varela.html' ? ' · de varela.html' : ''}</span></span><span class="f">${t.cesion ? 'cesión' : t.precio_eur ? eur(t.precio_eur) : 'libre'}</span></div>`;
+  const col = (titulo, cls, arr) => `<div class="card"><h4 style="margin-top:0" class="${cls}">${titulo} · ${arr.length}</h4>${arr.map(fila).join('') || '<p class="vacio">Ninguno.</p>'}</div>`;
+  const entra = lista.filter(t => t.entra), sale = lista.filter(t => !t.entra);
+  const resumen = `${gasto(true) ? 'Entradas ' + eur(gasto(true)) : 'Entradas a coste cero'} · ${gasto(false) ? 'salidas ' + eur(gasto(false)) : 'salidas sin ingresos'} · ${pl(entra.filter(t => !t.cesion).length, 'fichaje')}, ${pl(sale.filter(t => !t.cesion).length, 'baja')} y ${pl(sale.filter(t => t.cesion).length, 'cesión', 'cesiones')}`;
   return `<section><div class="wrap"><h2 data-n="09">Fichajes y salidas</h2>
-    <p class="sub">Fichajes y salidas por temporada, como en el historial de traspasos de FM (sin cuerpo técnico). Importes como en pantalla. Las promociones de la cantera no son fichajes y van aparte. Los movimientos marcados «de varela.html» ya no están en la memoria de FM y salen de tu varela.html.</p>
-    ${[...new Set([...Object.keys(porT), ...Object.keys(cant)])].sort().reverse().map(t => { porT[t] ||= []; return `<h4>${t} <span class="mini">· ${porT[t].filter(x => x.entra).length} llegadas (${eur(gasto(porT[t], true))}) · ${porT[t].filter(x => !x.entra).length} salidas (${eur(gasto(porT[t], false))})</span></h4>
-      ${cant[t] ? `<details class="cant"><summary>Promoción de la cantera: ${cant[t].length} jugadores (${fecha(cant[t][0].fecha)})</summary><p>${cant[t].map(x => jug(x.iu, x.jugador)).join(' · ')}</p></details>` : ''}
-      <div class="tr2"><div class="card"><h4 style="margin-top:0" class="in">Llegan</h4>${bloque(porT[t], true)}</div><div class="card"><h4 style="margin-top:0" class="out">Salen</h4>${bloque(porT[t], false)}</div></div>`; }).join('')}
+    <p class="sub">Historial de traspasos por temporada, como en FM (sin cuerpo técnico). Importes en euros como en pantalla («75 mil €» son 75.000 €). Las promociones de la cantera no son fichajes y van aparte. Los marcados «de varela.html» ya no están en la memoria de FM.</p>
+    <div class="tabs">${temps.map(t => `<button class="tab" data-trt="${t}" aria-selected="${t === sel}">${t}<small>${(k => k === 1 ? '1 fichaje' : k + ' fichajes')((porT[t] || []).filter(x => x.entra && !x.cesion).length)}</small></button>`).join('')}</div>
+    <div class="tr2"><div class="card" style="grid-column:1/-1"><b>${esc(resumen)}</b></div>${col('Llegadas', 'in', entra)}${col('Salidas', 'out', sale)}</div>
+    ${cant[sel] ? `<details class="cant" style="margin-top:12px"><summary>Promoción de la cantera: ${cant[sel].length} juveniles suben al primer equipo (${fecha(cant[sel][0].fecha)})</summary><p>${cant[sel].map(x => jug(x.iu, x.jugador)).join(' · ')}</p></details>` : ''}
     ${HIST.rentabilidad()}
   </div></section>`;
 };
@@ -356,7 +363,9 @@ V.finanzas = () => {
   for (const x of f) { const t = (porT[x.temporada] ||= {i: 0, g: 0, s: 0, n: 0}); t.i += x.ingresos_totales_eur; t.g += x.gastos_totales_eur; t.s += x.gasto_sueldos_eur; t.n++; }
   const ult = f[f.length - 1];
   return `<section><div class="wrap"><h2 data-n="10">Economía</h2>
-    <p class="sub">Últimos ${f.length} meses leídos de FM (moneda interna × 1,16618; junio de 2028 cuadra al euro con la exportación de economía). El mes en curso todavía cambia.</p>
+    <p class="sub">Ingresos y gastos de la última temporada completa por partidas, y debajo los ${f.length} meses leídos de FM (moneda interna × 1,16618; junio de 2028 cuadra al euro con la exportación de economía). El mes en curso todavía cambia.</p>
+    ${HIST.economia()}
+    <h4>Ahora mismo</h4>
     <div class="kpis"><div class="card kpi"><b>${eur(ult.saldo_eur)}</b><span>saldo del mes en curso</span></div>
       <div class="card kpi"><b>${eur(Math.round(ult.presupuesto_salarial_semana * 5.067))}</b><span>presupuesto salarial / mes</span></div>
       <div class="card kpi"><b>${eur(Math.round(ult.masa_salarial_semana * 5.067))}</b><span>masa salarial / mes</span></div>
@@ -372,7 +381,6 @@ V.finanzas = () => {
     ${tabla('finM', [{k: 'mes', t: 'Mes'}, {k: 'saldo_eur', t: 'Saldo', n: 1, h: r => eur(r.saldo_eur)}, {k: 'ingresos_totales_eur', t: 'Ingresos', n: 1, h: r => eur(r.ingresos_totales_eur)},
       {k: 'gastos_totales_eur', t: 'Gastos', n: 1, h: r => eur(r.gastos_totales_eur)}, {k: 'neto_eur', t: 'Neto', n: 1, h: r => eur(r.neto_eur)},
       {k: 'gasto_traspasos_neto_eur', t: 'Traspasos', n: 1, h: r => eur(r.gasto_traspasos_neto_eur)}], f, {k: 'mes', d: -1})}
-    ${HIST.economia()}
   </div></section>`;
 };
 
@@ -463,7 +471,7 @@ V.jugador = iu => {
   const meta = p ? [['Posición', x.posicion || '–'], ['Edad', edad(p.fecha_nacimiento) ?? '–'], ['Nacimiento', fecha(p.fecha_nacimiento)], ['Altura', p.altura_cm ? p.altura_cm + ' cm' : '–'],
     ['Sueldo', eur(p.sueldo_mes_eur) + '/mes'], ['Contrato hasta', fecha(p.fin_contrato)], ['Valor (pantalla)', x.valor || '–'], ['Cedido a', p.cedido_a || '–']] : [['Estado', 'exjugador']];
   return `<section><div class="wrap">
-    <p><a class="j" href="javascript:history.back()">← Volver</a></p>
+    <p class="volver"><a class="j" href="javascript:history.back()">← Volver</a></p>
     <div class="ficha-cab"><h2>${esc(nombre)}</h2>${p ? '<span class="pill">en la plantilla</span>' : '<span class="pill">exjugador</span>'}</div>
     <div class="meta" style="margin-top:10px">${meta.map(([k, v]) => `<span>${k}: <b>${esc(v)}</b></span>`).join('')}</div>
     ${HIST.trayectoria(iu)}
@@ -508,15 +516,54 @@ V.goles = () => HIST.goles();
 V.hitos = () => HIST.hitos();
 V.plan = () => HIST.plan();
 
+// ---------------------------------------------------------------- ficha emergente, aparición suave y cifras animadas (como varela.html)
+function ficha(iu) {
+  ficha.iu = +iu;
+  const p = D.plantilla.find(x => x.iu === +iu), x = IDX.export[iu] || {};
+  const temps = HIST.S().filter(s => s.sq.some(q => q.iu === +iu && q.pj)).length;
+  $('#mT').textContent = p?.nombre || IDX.nombres[iu] || 'Jugador';
+  $('#mS').textContent = [x.nacionalidad, x.posicion, temps ? temps + (temps === 1 ? ' temporada en el club' : ' temporadas en el club') : '', HIST.cantera().has(+iu) ? 'Cantera' : '', p ? 'En la plantilla actual' : 'Exjugador'].filter(Boolean).join(' · ');
+  $('#mB').innerHTML = V.jugador(iu);
+  if ($('#modal').hidden) { ficha.foco = document.activeElement; $('#modal').hidden = false; document.body.style.overflow = 'hidden'; $('#modal').scrollTop = 0; $('#mX').focus(); }
+}
+function cerrarFicha() { $('#modal').hidden = true; ficha.iu = null; document.body.style.overflow = ''; try { ficha.foco?.focus(); } catch (e) {} }
+document.addEventListener('click', ev => {
+  const a = ev.target.closest('a.j[href^="#jugador/"]');
+  if (a && location.hash.slice(1).split('/')[0] !== 'jugador') { ev.preventDefault(); ficha(a.getAttribute('href').split('/')[1]); return; }
+  if (ev.target.id === 'modal' || ev.target.closest('#mX')) cerrarFicha();
+});
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !$('#modal').hidden) cerrarFicha(); });
+function aparecer(raiz) {
+  const els = raiz.querySelectorAll('.card,.tw,h4,.podium,.banner,.tl .it,.tr2>*,.trofeo,.cur');
+  if (!('IntersectionObserver' in window) || matchMedia('(prefers-reduced-motion:reduce)').matches) return;
+  const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { e.target.classList.add('vis'); io.unobserve(e.target); } }), {rootMargin: '0px 0px -6% 0px'});
+  els.forEach(e => { e.classList.add('reveal'); io.observe(e); });
+}
+function contar() {
+  if (matchMedia('(prefers-reduced-motion:reduce)').matches) return;
+  document.querySelectorAll('.big b').forEach(b => {
+    const txt = b.textContent;
+    if (!/^\d+$/.test(txt)) return;
+    const n = +txt; let t0 = null;
+    const f = t => { t0 = t0 || t; const k = Math.min(1, (t - t0) / 900); b.textContent = Math.round(n * (1 - Math.pow(1 - k, 3))); if (k < 1) requestAnimationFrame(f); };
+    requestAnimationFrame(f);
+  });
+}
+
 // ---------------------------------------------------------------- navegación
 function pintar() {
   const [ruta, arg] = (location.hash.slice(1) || 'inicio').split('/');
   const vista = V[ruta] ? ruta : 'inicio';
   document.querySelectorAll('#menu a').forEach(a => a.setAttribute('aria-current', a.getAttribute('href') === '#' + vista ? 'page' : 'false'));
+  // en el móvil el menú se desliza: se centra en la sección activa
+  const activo = document.querySelector('#menu a[aria-current=page]');
+  if (activo && activo.parentElement.scrollWidth > activo.parentElement.clientWidth) activo.parentElement.scrollTo({left: activo.offsetLeft - activo.parentElement.clientWidth / 2 + activo.offsetWidth / 2, behavior: 'smooth'});
   const foco = document.activeElement?.id, pos = document.activeElement?.selectionStart;
   $('#vista').innerHTML = V[vista](arg);
   if (vista === 'inicio' && !window.FMHUB_ESTATICO && !window.FMHUB_PUBLICADO) fetch('api/url').then(r => r.json()).then(u => { const e = $('#url'); if (e) e.textContent = u.url; }).catch(() => {});
   if (foco) { const e = document.getElementById(foco); if (e) { e.focus(); try { e.setSelectionRange(pos, pos); } catch (er) {} } }
+  aparecer($('#vista'));
+  if (ficha.iu && !$('#modal').hidden) ficha(ficha.iu);
 }
 
 document.addEventListener('click', ev => {
@@ -527,6 +574,7 @@ document.addEventListener('click', ev => {
   else if (ds.nm) V.inicio.moral = !V.inicio.moral;
   else if (ds.pt) { V.partidos.t = ds.pt; V.partidos.c = null; }
   else if (ds.pa) V.partidos.amis = !V.partidos.amis;
+  else if (ds.trt) V.traspasos.t = ds.trt;
   else if (ds.pr) V.partidos.r = V.partidos.r === ds.pr ? null : ds.pr;
   else if (ds.hd) V.historial.dart = ds.hd === 'dart';
   else if (ds.hc) V.historial.comp = ds.hc;

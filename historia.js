@@ -92,6 +92,45 @@ const HIST = (() => {
   // sube o baja de categoría (solo si las dos temporadas tienen liga conocida)
   const asciende = s => !!(s?.sig?.nivel && s.nivel && s.sig.nivel < s.nivel);
   const desciende = s => !!(s?.sig?.nivel && s.nivel && s.sig.nivel > s.nivel);
+  // ronda del partido según el calendario exportado de FM, en corto: «Cuartos», «Semifinal (ida)», «Ronda 2»…
+  function ronda(p) {
+    const r = p.ronda || '';
+    if (!r || NIVEL_LIGA[p.competicion] && !/playoff/i.test(r)) return '';
+    const vuelta = /^Ida/i.test(r) ? ' (ida)' : /^Vuelta/i.test(r) ? ' (vuelta)' : /^Replay/i.test(r) ? ' (repetición)' : '';
+    const po = /playoff/i.test(r) ? ' del playoff' : '';
+    if (/1\/8/.test(r)) return 'Octavos' + po + vuelta;
+    if (/1\/4/.test(r)) return 'Cuartos' + po + vuelta;
+    if (/Semifinal/i.test(r)) return 'Semifinal' + po + vuelta;
+    if (/\bFinal\b/i.test(r)) return 'Final' + po + vuelta;
+    const g = r.match(/Gr\.\s*(\w+)/); if (g) return `Fase de grupos (${g[1]})`;
+    const n = r.match(/(\d+)ª/); if (n) return `${/Clasif/i.test(r) ? 'Previa ' : 'Ronda '}${n[1]}${vuelta}`;
+    return r;
+  }
+  const esFinal = p => /^Final/.test(ronda(p));
+  // trofeos de verdad: ligas ganadas y finales ganadas (de copa o del playoff de ascenso)
+  function titulos() {
+    const out = [];
+    for (const s of S()) {
+      if (s.completa && s.lg.pos === 1) out.push({t: s.t, nombre: `Campeón de la ${LIGA_CORTA(s.liga)}`, detalle: `${s.lg.pts} puntos`, f: s.lgPs[s.lgPs.length - 1]?.fecha, tipo: 'liga'});
+      for (const p of s.ps) if (p.oficial && esFinal(p) && !/vuelta|ida/.test(ronda(p)) && p.res === 'W')
+        out.push({t: s.t, nombre: p.ck === 'PO' ? `Campeón del playoff de ${LIGA_CORTA(s.liga)}` : `Campeón de la ${p.competicion}`, detalle: `final: ${p.gf}-${p.gc} al ${p.rival}${p.pen || ''}`, f: p.fecha, tipo: 'copa'});
+      // finales a doble partido: gana la eliminatoria quien lleva ventaja en el global (o los penaltis)
+      const vueltas = s.ps.filter(p => p.oficial && esFinal(p) && /vuelta/.test(ronda(p)));
+      for (const p of vueltas) if (p.res === 'W' || (p.global && p.global[0] > p.global[1])) out.push({t: s.t, nombre: `Campeón de la ${p.competicion}`, detalle: `final a doble partido ante el ${p.rival}`, f: p.fecha, tipo: 'copa'});
+    }
+    return out;
+  }
+  // mejor ronda alcanzada en cada copa (por temporada)
+  function recorridos() {
+    const out = [];
+    for (const s of S()) {
+      const g = {};
+      for (const p of s.ps) if (p.oficial && p.ck !== 'LG') (g[p.ck === 'PO' ? `Playoff de ${LIGA_CORTA(s.liga)}` : p.competicion] ||= []).push(p);
+      for (const [c, ps] of Object.entries(g)) { const u = ps[ps.length - 1]; out.push({t: s.t, c, ps, u, r: ronda(u), gano: titulos().some(x => x.t === s.t && x.f === u.fecha)}); }
+    }
+    return out;
+  }
+  const PESO_RONDA = r => /^Final/.test(r) ? 6 : /^Semifinal/.test(r) ? 5 : /^Cuartos/.test(r) ? 4 : /^Octavos/.test(r) ? 3 : /Ronda (\d)/.test(r) ? 1 + (+r.match(/Ronda (\d)/)[1]) / 10 : /grupos/.test(r) ? .5 : 0;
   const cantera = () => new Set((D.traspasos || []).filter(t => t.tipo === 'cantera').map(t => t.iu));
   const enPlantilla = () => new Set(D.plantilla.map(p => p.iu));
 
@@ -102,7 +141,7 @@ const HIST = (() => {
     const asc = ss.filter(asciende);
     const maxPts = tt.filter(s => s.completa).reduce((m, s) => Math.max(m, s.lg.pts), 0);
     const veces = tt.filter(s => s.completa && s.lg.pts === maxPts).length;
-    return {ligas, asc, maxPts, veces};
+    return {ligas, asc, maxPts, veces, titulos: titulos()};
   }
   function escalera() {
     const tt = conTabla();
@@ -130,7 +169,7 @@ const HIST = (() => {
     const pal = palmares();
     const gf = of.reduce((s, p) => s + p.gf, 0), gc = of.reduce((s, p) => s + p.gc, 0);
     return [[num(of.length), 'partidos oficiales'], [`${v}·${e}·${d}`, `V · E · D (${of.length ? Math.round(100 * v / of.length) : 0}%)`], [`${gf}–${gc}`, 'goles a favor – en contra'],
-      [pal.ligas.length, pal.ligas.length === 1 ? 'liga ganada' : 'ligas ganadas'], [pal.asc.length, pal.asc.length === 1 ? 'ascenso' : 'ascensos'],
+      [pal.titulos.length, pal.titulos.length === 1 ? 'título' : 'títulos'], [pal.asc.length, pal.asc.length === 1 ? 'ascenso' : 'ascensos'],
       [pal.maxPts || '–', `puntos, récord del club${pal.veces > 1 ? ` (x${pal.veces})` : ''}`]]
       .map(([n, t]) => `<div class="big"><b>${n}</b><span>${t}</span></div>`).join('');
   }
@@ -183,21 +222,16 @@ const HIST = (() => {
     const tt = conTabla(), pal = palmares();
     const col = tt.map(s => s.lg.pos === 1 && s.completa ? 'var(--gold)' : asciende(s) ? 'color-mix(in srgb,var(--gold) 60%,var(--bar))' : 'var(--bar)');
     const hv = tt.filter(s => s.lgPs.length >= 4).map(s => ({s, v: vueltas(s)}));
-    const copas = [];
-    for (const s of S()) {
-      const grupos = {};
-      for (const p of s.ps) if (p.oficial && p.ck !== 'LG') (grupos[p.ck === 'PO' ? 'Playoff de ' + LIGA_CORTA(s.liga) : p.competicion] ||= []).push(p);
-      for (const [c, ps] of Object.entries(grupos)) copas.push({t: s.t, c, ps, u: ps[ps.length - 1]});
-    }
     const mejoresCopas = {};
-    for (const x of copas) { const k = x.c.replace(/^Playoff de .*/, 'Playoff'); if (!mejoresCopas[k] || x.ps.length > mejoresCopas[k].ps.length) mejoresCopas[k] = x; }
+    for (const x of recorridos()) { const k = x.c.replace(/^Playoff de .*/, 'Playoff de ascenso'); const m = mejoresCopas[k]; if (!m || PESO_RONDA(x.r) > PESO_RONDA(m.r) || (PESO_RONDA(x.r) === PESO_RONDA(m.r) && x.ps.length > m.ps.length)) mejoresCopas[k] = x; }
     return `<section><div class="wrap"><h2 data-n="01">El viaje</h2>
       <p class="sub">Puntos de liga por temporada, goles a favor y en contra y cómo cambia el equipo entre la primera y la segunda vuelta. Se calcula solo con cada temporada nueva.</p>
-      <div class="card"><h4 style="margin-top:0">Palmarés</h4><ul class="facts">
-        ${pal.ligas.map(s => `<li>★ <b>Campeón</b> de la ${esc(LIGA_CORTA(s.liga))} ${s.t} (${s.lg.pts} pts)</li>`).join('')}
-        ${pal.asc.map(s => `<li>▲ <b>Ascenso</b> ${s.t}: de la ${esc(LIGA_CORTA(s.liga))} a la ${esc(LIGA_CORTA(s.sig.liga))}${s.lg && s.lg.pos > 1 ? ` (${s.lg.pos}.º)` : ''}</li>`).join('')}
-        ${Object.entries(mejoresCopas).map(([k, x]) => `<li>${esc(k === 'Playoff' ? x.c : k)}: mejor recorrido en ${x.t}, ${x.ps.length} partidos (último: ${x.u.gf}-${x.u.gc} ante el ${esc(x.u.rival)}${x.u.pen ? ', penaltis' + esc(x.u.pen) : ''})</li>`).join('')}
-        ${!pal.ligas.length && !pal.asc.length ? '<li>Sin títulos ni ascensos todavía.</li>' : ''}</ul></div>
+      <div class="palm">${pal.titulos.map(x => `<div class="trofeo"><span class="copa">🏆</span><div><b>${esc(x.nombre)}</b><small>${x.t} · ${esc(x.detalle)}</small></div></div>`).join('') || '<div class="card vacio">Todavía sin títulos.</div>'}</div>
+      <p class="mini" style="margin:6px 0 0">Palmarés: solo títulos ganados (ligas y finales de copa o de playoff ganadas, detectadas por la ronda del calendario exportado de FM).</p>
+      <div class="grid g2" style="margin-top:14px">
+        <div class="card"><h4 style="margin-top:0">Ascensos</h4><ul class="facts" style="grid-template-columns:1fr">${pal.asc.map(s => `<li>▲ <b>${s.t}</b>: de la ${esc(LIGA_CORTA(s.liga))} a la ${esc(LIGA_CORTA(s.sig.liga))}${s.lg ? ` (${s.lg.pos}.º, ${s.lg.pts} pts${s.ps.some(p => p.ck === 'PO') ? ', vía playoff' : ''})` : ''}</li>`).join('') || '<li>Sin ascensos todavía.</li>'}</ul></div>
+        <div class="card"><h4 style="margin-top:0">Mejor recorrido en cada copa</h4><ul class="facts" style="grid-template-columns:1fr">${Object.entries(mejoresCopas).map(([k, x]) => `<li><b>${esc(k)}</b>: ${x.gano ? '★ campeón' : esc(x.r || x.ps.length + ' partidos')} en ${x.t}${x.gano ? '' : ` · eliminado por el ${esc(x.u.rival)} (${x.u.gf}-${x.u.gc}${x.u.pen ? esc(x.u.pen) : ''})`}</li>`).join('') || '<li>Sin partidos de copa.</li>'}</ul></div>
+      </div>
       <div class="grid g2" style="margin-top:14px">
         <div class="card"><h4 style="margin-top:0">Puntos en liga</h4>${grafBarrasTemporadas(tt.map(s => s.lg.pts), tt.map(s => sh(s.t)), tt.map(s => `${s.corto} · ${s.lg.pos}º`), col)}</div>
         <div class="card"><h4 style="margin-top:0">Goles en liga (a favor / en contra)</h4>${grafPares(tt.map(s => [s.lg.gf, s.lg.gc]), tt.map(s => sh(s.t)), ['var(--w)', 'var(--l)'], ['A favor', 'En contra'])}</div>
@@ -291,17 +325,20 @@ const HIST = (() => {
       .map(([k, t, u, mn]) => { const p = honor(k, mn || 0); return p ? `<div class="card kpi"><b style="font-size:18px">${jug(p.iu, p.n)}</b><span>${t} · ${k === 'avg' ? d2(p.avg) : p[k]}${u ? ' ' + u : ''}</span></div>` : ''; }).join('');
     const atMax = att.length ? att.reduce((a, b) => b.espectadores > a.espectadores ? b : a) : null;
     if (hon) h += `<h4>Cuadro de honor</h4><div class="grid g4">${hon}${atMax ? `<div class="card kpi"><b style="font-size:18px">${miles(atMax.espectadores)}</b><span>Mayor asistencia · ${esc(atMax.rival)}, ${fecha(atMax.fecha)}</span></div>` : ''}</div>`;
-    if (Object.keys(cupGrupos).length) h += `<h4>Copas y otras competiciones</h4><div class="card"><table class="copas"><tbody>${Object.entries(cupGrupos).map(([c, ps]) => { const u = ps[ps.length - 1], r = wdl(ps); return `<tr><td><b>${esc(c)}</b></td><td>${ps.length} partidos (${r.w}V ${r.d}E ${r.l}D) · último: ${pillR(u)} ante el ${rivalLink(u.rival)}${u.pen ? ' · penaltis' + esc(u.pen) : ''}, ${fecha(u.fecha)}</td></tr>`; }).join('')}</tbody></table></div>`;
+    if (Object.keys(cupGrupos).length) { const tits = titulos(); h += `<h4>Copas y otras competiciones</h4><div class="card"><table class="copas"><tbody>${Object.entries(cupGrupos).map(([c, ps]) => { const u = ps[ps.length - 1], r = wdl(ps), gano = tits.some(x => x.f === u.fecha); return `<tr><td><b>${esc(c)}</b></td><td>${gano ? '<b style="color:var(--gold)">★ Campeón</b>' : esc(ronda(u) || '—')} · ${gano ? 'final' : 'eliminado'} ante el ${rivalLink(u.rival)} ${pillR(u)}${u.pen ? ' penaltis' + esc(u.pen) : ''}</td><td class="mini">${ps.length} partidos · ${r.w}V ${r.d}E ${r.l}D</td></tr>`; }).join('')}</tbody></table></div>`; }
     if (s.tabla.length) h += `<h4>Clasificación${s.completa ? ' final' : ''}</h4><div class="tw"><table><thead><tr><th class="n">Pos</th><th></th><th>Equipo</th><th class="n">PJ</th><th class="n">G</th><th class="n">E</th><th class="n">P</th><th class="n">GF</th><th class="n">GC</th><th class="n">DG</th><th class="n">Pts</th></tr></thead><tbody>${s.tabla.map(r => { const zz = z[r.club]; const me = r.club === IDX.club; return `<tr style="${me ? 'background:var(--goldbg);font-weight:700' : ''}"><td class="n">${r.pos}</td><td style="width:22px"><span class="pill" style="${zz === 'D' ? 'background:var(--lbg);color:var(--l)' : zz ? 'background:var(--wbg);color:var(--w)' : 'visibility:hidden'}">${zz || '·'}</span></td><td>${me ? esc(r.club) : rivalLink(r.club)}</td><td class="n">${r.j}</td><td class="n">${r.g}</td><td class="n">${r.e}</td><td class="n">${r.p}</td><td class="n">${r.gf}</td><td class="n">${r.gc}</td><td class="n">${r.gf - r.gc > 0 ? '+' : ''}${r.gf - r.gc}</td><td class="n"><b>${r.pts}</b></td></tr>`; }).join('')}</tbody></table></div><div class="legend"><span>C campeón · A ascenso · D descenso (deducidos de quién juega en qué liga la temporada siguiente)</span></div>`;
     const lista = comp.filter(p => filtroRes === 'all' || r90(p) === filtroRes);
     h += `<h4>Partido a partido · ${comp.length} encuentros</h4><div class="filters">${[['all', 'Cualquier resultado'], ['W', 'Victorias'], ['D', 'Empates'], ['L', 'Derrotas']].map(([k, t]) => `<button class="chip" data-hres="${k}" aria-pressed="${filtroRes === k}">${t}</button>`).join('')}</div>
-      <div class="tw scroll"><table><thead><tr><th>Fecha</th><th>Competición</th><th>Rival</th><th class="n">Res.</th><th class="n">Asist.</th><th>Goleadores</th><th>Formación</th></tr></thead><tbody>${lista.map(p => `<tr class="r${r90(p)}"><td class="mono" style="font-size:12px">${fecha(p.fecha)}</td><td class="cmp">${p.ck === 'LG' ? 'Liga · J' + p.j : p.ck === 'PO' ? 'Playoff' : esc(p.competicion)}</td><td><span class="ha">${p.casa ? 'CASA' : 'FUERA'}</span>${rivalLink(p.rival)}</td><td class="n">${pillR(p)}</td><td class="n">${p.espectadores ? miles(p.espectadores) : '—'}</td><td class="sc">${golesTxt(p)}</td><td class="cmp">${esc(p.formacion || '')}</td></tr>`).join('') || '<tr><td colspan="7">Sin partidos con esos filtros.</td></tr>'}</tbody></table></div>`;
-    const ord = {POR: 0, DEF: 1, MED: 2, DEL: 3, OTR: 4};
+      <div class="tw scroll"><table><thead><tr><th>Fecha</th><th>Competición</th><th>Rival</th><th class="n">Res.</th><th class="n">Asist.</th><th>Goleadores</th><th>Formación</th></tr></thead><tbody>${lista.map(p => `<tr class="r${r90(p)}"><td class="mono" style="font-size:12px">${fecha(p.fecha)}</td><td class="cmp">${p.ck === 'LG' ? 'Liga · J' + p.j : p.ck === 'PO' ? 'Playoff · ' + esc(ronda(p)) : esc(p.competicion) + (ronda(p) ? ' · ' + esc(ronda(p)) : '')}</td><td><span class="ha">${p.casa ? 'CASA' : 'FUERA'}</span>${rivalLink(p.rival)}</td><td class="n">${pillR(p)}</td><td class="n">${p.espectadores ? miles(p.espectadores) : '—'}</td><td class="sc">${golesTxt(p)}</td><td class="cmp">${esc(p.formacion || '')}</td></tr>`).join('') || '<tr><td colspan="7">Sin partidos con esos filtros.</td></tr>'}</tbody></table></div>`;
+    const ord = {POR: 0, DEF: 1, MED: 2, DEL: 3, OTR: 4}, GN = {POR: 'Porteros', DEF: 'Defensas', MED: 'Centrocampistas', DEL: 'Delanteros', OTR: 'Otros'};
     const sqAll = [...s.sq].sort((a, b) => ord[a.gr] - ord[b.gr] || b.pj - a.pj);
-    h += `<h4>Plantilla ${s.t} · ${sqAll.length} jugadores</h4>${tabla('hsq' + s.t, [
-      {k: 'n', t: 'Jugador', h: p => jug(p.iu, p.n)}, {k: 'pos', t: 'Posición', cls: 'cmp'}, {k: 'edad', t: 'Edad', n: 1}, {k: 'pj', t: 'PJ', n: 1}, {k: 'g', t: 'G', n: 1}, {k: 'a', t: 'A', n: 1},
-      {k: 'avg', t: 'Media', n: 1, h: p => p.avg ? d2(p.avg) : '–'}, {k: 'min', t: 'Min', n: 1, h: p => num(p.min)}, {k: 'yc', t: 'Am', n: 1}, {k: 'rc', t: 'Ro', n: 1},
-      {k: 'sueldo', t: '€/mes', n: 1, h: p => p.sueldo ? miles(p.sueldo) : '–'}, {k: 'contrato', t: 'Contrato', cls: 'cmp'}, {k: 'valor', t: 'Valor', cls: 'cmp'}], sqAll)}
+    const can = cantera();
+    let ultG = '';
+    h += `<h4>Plantilla ${s.t} · ${sqAll.length} jugadores</h4><p class="sub" style="margin:0 0 10px">Toca un jugador para abrir su ficha con trayectoria y atributos.</p><div class="tw scroll"><table><thead><tr><th>Jugador</th><th>Posición</th><th class="n">Edad</th><th class="n">PJ</th><th class="n">G</th><th class="n">A</th><th class="n">Media</th><th class="n">Min</th><th class="n">Am</th><th class="n">Ro</th><th class="n">€/mes</th><th>Contrato</th><th>Valor</th></tr></thead><tbody>${sqAll.map(p => {
+      const cab = p.gr !== ultG ? `<tr><td colspan="13" style="background:var(--bg);font:800 11px Archivo;letter-spacing:.08em;text-transform:uppercase;color:var(--gold)">${GN[p.gr]}</td></tr>` : '';
+      ultG = p.gr;
+      return cab + `<tr><td><b>${jug(p.iu, p.n)}</b>${can.has(p.iu) ? ' <span class="ha">CANTERA</span>' : ''}</td><td class="cmp">${esc(p.pos || '—')}</td><td class="n">${p.edad || '—'}</td><td class="n">${p.pj}${p.sb ? ` <span style="color:var(--mut)">(${p.sb})</span>` : ''}</td><td class="n">${p.g}</td><td class="n">${p.a || '—'}</td><td class="n">${p.avg ? d2(p.avg) : '—'}</td><td class="n">${p.min ? miles(p.min) : '—'}</td><td class="n">${p.yc || '—'}</td><td class="n">${p.rc || '—'}</td><td class="n">${p.sueldo ? miles(p.sueldo) : '—'}</td><td class="cmp">${esc(p.contrato || '—')}</td><td class="cmp">${esc(p.valor || '—')}</td></tr>`;
+    }).join('')}</tbody></table></div>
       <p class="mini">Partidos y goles de la tabla de carrera de FM (todas las oficiales con el club). Sueldo, contrato, valor y posición: última ficha de esa temporada.</p></div></div></section>`;
     return h;
   }
@@ -655,6 +692,28 @@ const HIST = (() => {
       ${f.length ? `<h5>Datos interesantes</h5><ul class="facts">${f.map(x => `<li>${x}</li>`).join('')}</ul>` : ''}</div>`;
   }
 
+  // ---------------------------------------------------------------- cabecera y notas (como varela.html)
+  function entradilla() {
+    const ss = S(), tt = conTabla(), pal = palmares();
+    const of = IDX.partidos.filter(p => p.oficial);
+    const n = ss.filter(s => s.ps.some(p => p.oficial)).length;
+    const num_ = k => ['cero', 'una', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez'][k] || k;
+    const desde = tt[0], hasta = tt[tt.length - 1];
+    const t = pal.titulos.length, a = pal.asc.length;
+    return `${n === 1 ? 'Una temporada' : num_(n).charAt(0).toUpperCase() + num_(n).slice(1) + ' temporadas'}, ${miles(of.length)} partidos oficiales${t ? `, ${t === 1 ? 'un título' : num_(t) + ' títulos'}` : ''}${a ? ` y ${a === 1 ? 'un ascenso' : num_(a) + ' ascensos'}` : ''}${desde && hasta && desde.liga !== hasta.liga ? `: de la ${LIGA_CORTA(desde.liga)} a la ${LIGA_CORTA(hasta.liga)}` : ''}. Cada partido, cada plantilla y cada atributo, leídos del propio juego mientras juegas.`;
+  }
+  function notas() {
+    const ss = S(), of = IDX.partidos.filter(p => p.oficial);
+    const r = wdl(of), v = of.filter(p => p.res === 'W').length, e = of.filter(p => p.res === 'D').length;
+    return `<h2 style="font-size:24px;color:var(--ink)">Notas sobre los datos</h2><ul>
+      <li>Resultados leídos de la memoria del juego y de los calendarios exportados. Las tandas de penaltis cuentan como victoria o derrota, igual que en el historial del mánager (${v}V-${e}E-${of.length - v - e}D; sin tandas serían ${r.w}-${r.d}-${r.l}).</li>
+      <li>Partidos, goles y medias de cada jugador: tabla de carrera de FM. Sueldo, contrato, valor, posición y atributos: la última ficha de cada temporada (memoria o exportaciones de plantilla, cuya fecha de juego se deduce de las edades).</li>
+      <li>Clasificaciones copiadas de las tablas del juego al abrirlas. Ascensos y descensos de los rivales se deducen de en qué liga juega cada uno la temporada siguiente.</li>
+      <li>Rondas de copa, formaciones y próximo partido: del calendario exportado (Ctrl+P). Las alineaciones con jugadores, si el calendario se exporta con esa columna.</li>
+      <li>Los goles por jugador de la tabla de carrera pueden diferir en alguno de la suma de goleadores de los partidos (goles en propia puerta y goles sin jugador identificado).</li>
+      <li>El desglose económico sale de la pantalla de finanzas exportada; el saldo mes a mes, de la memoria.</li></ul>`;
+  }
+
   // ---------------------------------------------------------------- exportación para Claude (también en la web pública)
   function exportacion() {
     const ts = [...IDX.temporadas].reverse();
@@ -688,5 +747,5 @@ const HIST = (() => {
     if (ev.target.id === 'rvQ' && ev.target.value) location.hash = 'rivales/' + encodeURIComponent(ev.target.value);
   });
 
-  return {S, viaje, temporadas, rivales, goles, hitos, rentabilidad, economia, plan, trayectoria, exportacion, escalera, bigsPalmares, cantera, enPlantilla};
+  return {S, ronda, titulos, entradilla, notas, viaje, temporadas, rivales, goles, hitos, rentabilidad, economia, plan, trayectoria, exportacion, escalera, bigsPalmares, cantera, enPlantilla};
 })();
