@@ -556,6 +556,11 @@ function contar() {
   });
 }
 
+// recarga los datos sin perder la vista (cada 2 minutos, o al momento cuando FM Hub captura algo nuevo)
+async function recargarDatos() {
+  try { D = await cargar(); preparar(); cabecera(); if (!document.activeElement?.matches('input')) pintar(); } catch (e) {}
+}
+
 // ---------------------------------------------------------------- navegación
 function pintar() {
   const [ruta, arg] = (location.hash.slice(1) || 'inicio').split('/');
@@ -610,5 +615,5 @@ window.addEventListener('hashchange', () => { pintar(); window.scrollTo(0, docum
   }
   if ('serviceWorker' in navigator && !window.FMHUB_ESTATICO && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
   // Recarga sola los datos cada 2 minutos mientras está abierta (FM Hub los actualiza mientras juegas)
-  if (!window.FMHUB_ESTATICO) setInterval(async () => { try { D = await cargar(); preparar(); cabecera(); if (!document.activeElement?.matches('input')) pintar(); } catch (e) {} }, 120000);
+  if (!window.FMHUB_ESTATICO) setInterval(recargarDatos, 120000);
 })();

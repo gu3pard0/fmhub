@@ -138,6 +138,12 @@ const HIST = (() => {
     }
     return out;
   }
+  // prestigio de cada trofeo (para ordenar el palmarés): primero las ligas de más categoría y las copas grandes
+  const PRESTIGIO = {'premier-league': 100, 'copa-fa': 95, 'championship': 85, 'carabao-cup': 80, 'playoff-ch': 78, 'league-one': 70,
+    'playoff-l1': 66, 'league-two': 60, 'efl-trophy': 56, 'playoff-l2': 54, 'national-league': 50, 'trofeo-fa': 46, 'playoff-nl': 44,
+    'national-league-north': 40, 'national-league-south': 40, 'playoff-nls': 36};
+  const prestigio = x => PRESTIGIO[x.slug] ?? 30;
+
   // mejor ronda alcanzada en cada copa (por temporada)
   function recorridos() {
     const out = [];
@@ -159,7 +165,7 @@ const HIST = (() => {
     const asc = ss.filter(asciende);
     const maxPts = tt.filter(s => s.completa).reduce((m, s) => Math.max(m, s.lg.pts), 0);
     const veces = tt.filter(s => s.completa && s.lg.pts === maxPts).length;
-    return {ligas, asc, maxPts, veces, titulos: titulos()};
+    return {ligas, asc, maxPts, veces, titulos: titulos().sort((a, b) => prestigio(b) - prestigio(a) || b.t.localeCompare(a.t))};
   }
   function escalera() {
     const tt = conTabla();
@@ -245,7 +251,7 @@ const HIST = (() => {
     return `<section><div class="wrap"><h2 data-n="01">El viaje</h2>
       <p class="sub">Puntos de liga por temporada, goles a favor y en contra y cómo cambia el equipo entre la primera y la segunda vuelta. Se calcula solo con cada temporada nueva.</p>
       <div class="palm">${pal.titulos.map(x => `<div class="trofeo">${imagenTrofeo(x.slug)}<div><b>${esc(x.nombre)}</b><small>${x.t} · ${esc(x.detalle)}</small></div></div>`).join('') || '<div class="card vacio">Todavía sin títulos.</div>'}</div>
-      <p class="mini" style="margin:6px 0 0">Palmarés: solo títulos ganados (ligas y finales de copa o de playoff ganadas, detectadas por la ronda del calendario exportado de FM).</p>
+      <p class="mini" style="margin:6px 0 0">Palmarés: solo títulos ganados (ligas y finales de copa o de playoff ganadas, detectadas por la ronda del calendario exportado de FM), del más prestigioso al menos.</p>
       <div class="grid g2" style="margin-top:14px">
         <div class="card"><h4 style="margin-top:0">Ascensos</h4><ul class="facts" style="grid-template-columns:1fr">${pal.asc.map(s => `<li>▲ <b>${s.t}</b>: de la ${esc(LIGA_CORTA(s.liga))} a la ${esc(LIGA_CORTA(s.sig.liga))}${s.lg ? ` (${s.lg.pos}.º, ${s.lg.pts} pts${s.ps.some(p => p.ck === 'PO') ? ', vía playoff' : ''})` : ''}</li>`).join('') || '<li>Sin ascensos todavía.</li>'}</ul></div>
         <div class="card"><h4 style="margin-top:0">Mejor recorrido en cada copa</h4><ul class="facts" style="grid-template-columns:1fr">${Object.entries(mejoresCopas).map(([k, x]) => `<li><b>${esc(k)}</b>: ${x.gano ? '★ campeón' : esc(x.r || x.ps.length + ' partidos')} en ${x.t}${x.gano ? '' : ` · eliminado por el ${esc(x.u.rival)} (${x.u.gf}-${x.u.gc}${x.u.pen ? esc(x.u.pen) : ''})`}</li>`).join('') || '<li>Sin partidos de copa.</li>'}</ul></div>
