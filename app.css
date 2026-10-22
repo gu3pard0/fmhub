@@ -141,7 +141,7 @@ nav.top a{padding:6px 10px}
 /* ---------- Palmarés: solo trofeos ---------- */
 .palm{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(260px,100%),1fr));gap:12px}
 .trofeo{display:flex;gap:14px;align-items:center;padding:16px 18px;border-radius:14px;border:1px solid color-mix(in srgb,var(--gold) 45%,var(--line));background:linear-gradient(150deg,var(--goldbg),var(--card) 70%)}
-.trofeo .copa{font-size:34px;line-height:1;filter:drop-shadow(0 4px 8px rgba(0,0,0,.25))}
+.trofeo .trofeo-img{width:64px;height:80px;object-fit:contain;flex:none;filter:drop-shadow(0 6px 10px rgba(0,0,0,.3))}
 .trofeo b{display:block;font:800 17px/1.2 Archivo}
 .trofeo small{display:block;color:var(--mut);font:500 12px 'JetBrains Mono';margin-top:3px}
 

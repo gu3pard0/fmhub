@@ -107,16 +107,34 @@ const HIST = (() => {
     return r;
   }
   const esFinal = p => /^Final/.test(ronda(p));
+  // imagen del trofeo: web/trofeos/<nombre>.png (o .jpg/.webp) si existe; si no, una copa dibujada
+  const slugTrofeo = (nombre, liga) => {
+    const n = (nombre + ' ' + (liga || '')).toLowerCase();
+    if (/playoff/.test(n)) return 'playoff-' + (CODIGO_LIGA[NIVEL_LIGA[liga]] || 'liga').toLowerCase();
+    for (const [re, s] of [[/national league south/, 'national-league-south'], [/national league north/, 'national-league-north'], [/national league/, 'national-league'],
+      [/league two/, 'league-two'], [/league one/, 'league-one'], [/championship/, 'championship'], [/premier league/, 'premier-league'],
+      [/copa fa|fa cup/, 'copa-fa'], [/trofeo fa|fa trophy/, 'trofeo-fa'], [/carabao|league cup/, 'carabao-cup'], [/bristol|efl trophy|trophy/, 'efl-trophy']]) if (re.test(n)) return s;
+    return n.replace(/[^a-z0-9]+/g, '-');
+  };
+  function imagenTrofeo(slug) {
+    const est = window.FMHUB_TROFEOS?.[slug];
+    if (est) return `<img class="trofeo-img" src="${est}" alt="">`;
+    const f = (D.trofeos || []).find(x => x.replace(/\.[a-z]+$/, '') === slug);
+    if (f) return `<img class="trofeo-img" src="trofeos/${encodeURIComponent(f)}" alt="">`;
+    return `<svg class="trofeo-img" viewBox="0 0 64 80" aria-hidden="true"><defs><linearGradient id="oro" x1="0" x2="1"><stop offset="0" stop-color="#8a5f12"/><stop offset=".45" stop-color="#f3d27a"/><stop offset=".6" stop-color="#e2b54a"/><stop offset="1" stop-color="#7a520e"/></linearGradient></defs>
+      <path d="M18 6h28v14c0 10-6 18-14 18S18 30 18 20z" fill="url(#oro)"/><path d="M18 10H8c0 10 5 16 12 17M46 10h10c0 10-5 16-12 17" fill="none" stroke="url(#oro)" stroke-width="3.5"/>
+      <rect x="29" y="37" width="6" height="12" fill="url(#oro)"/><path d="M22 49h20l3 9H19z" fill="url(#oro)"/><rect x="15" y="58" width="34" height="12" rx="2" fill="#2a2116"/><rect x="21" y="62" width="22" height="4" rx="1" fill="url(#oro)" opacity=".8"/></svg>`;
+  }
   // trofeos de verdad: ligas ganadas y finales ganadas (de copa o del playoff de ascenso)
   function titulos() {
     const out = [];
     for (const s of S()) {
-      if (s.completa && s.lg.pos === 1) out.push({t: s.t, nombre: `Campeón de la ${LIGA_CORTA(s.liga)}`, detalle: `${s.lg.pts} puntos`, f: s.lgPs[s.lgPs.length - 1]?.fecha, tipo: 'liga'});
+      if (s.completa && s.lg.pos === 1) out.push({t: s.t, nombre: `Campeón de la ${LIGA_CORTA(s.liga)}`, detalle: `${s.lg.pts} puntos`, f: s.lgPs[s.lgPs.length - 1]?.fecha, tipo: 'liga', slug: slugTrofeo(s.liga)});
       for (const p of s.ps) if (p.oficial && esFinal(p) && !/vuelta|ida/.test(ronda(p)) && p.res === 'W')
-        out.push({t: s.t, nombre: p.ck === 'PO' ? `Campeón del playoff de ${LIGA_CORTA(s.liga)}` : `Campeón de la ${p.competicion}`, detalle: `final: ${p.gf}-${p.gc} al ${p.rival}${p.pen || ''}`, f: p.fecha, tipo: 'copa'});
+        out.push({t: s.t, nombre: p.ck === 'PO' ? `Campeón del playoff de ${LIGA_CORTA(s.liga)}` : `Campeón de la ${p.competicion}`, detalle: `final: ${p.gf}-${p.gc} al ${p.rival}${p.pen || ''}`, f: p.fecha, tipo: 'copa', slug: p.ck === 'PO' ? slugTrofeo('playoff', s.liga) : slugTrofeo(p.competicion)});
       // finales a doble partido: gana la eliminatoria quien lleva ventaja en el global (o los penaltis)
       const vueltas = s.ps.filter(p => p.oficial && esFinal(p) && /vuelta/.test(ronda(p)));
-      for (const p of vueltas) if (p.res === 'W' || (p.global && p.global[0] > p.global[1])) out.push({t: s.t, nombre: `Campeón de la ${p.competicion}`, detalle: `final a doble partido ante el ${p.rival}`, f: p.fecha, tipo: 'copa'});
+      for (const p of vueltas) if (p.res === 'W' || (p.global && p.global[0] > p.global[1])) out.push({t: s.t, nombre: `Campeón de la ${p.competicion}`, detalle: `final a doble partido ante el ${p.rival}`, f: p.fecha, tipo: 'copa', slug: slugTrofeo(p.competicion)});
     }
     return out;
   }
@@ -226,7 +244,7 @@ const HIST = (() => {
     for (const x of recorridos()) { const k = x.c.replace(/^Playoff de .*/, 'Playoff de ascenso'); const m = mejoresCopas[k]; if (!m || PESO_RONDA(x.r) > PESO_RONDA(m.r) || (PESO_RONDA(x.r) === PESO_RONDA(m.r) && x.ps.length > m.ps.length)) mejoresCopas[k] = x; }
     return `<section><div class="wrap"><h2 data-n="01">El viaje</h2>
       <p class="sub">Puntos de liga por temporada, goles a favor y en contra y cómo cambia el equipo entre la primera y la segunda vuelta. Se calcula solo con cada temporada nueva.</p>
-      <div class="palm">${pal.titulos.map(x => `<div class="trofeo"><span class="copa">🏆</span><div><b>${esc(x.nombre)}</b><small>${x.t} · ${esc(x.detalle)}</small></div></div>`).join('') || '<div class="card vacio">Todavía sin títulos.</div>'}</div>
+      <div class="palm">${pal.titulos.map(x => `<div class="trofeo">${imagenTrofeo(x.slug)}<div><b>${esc(x.nombre)}</b><small>${x.t} · ${esc(x.detalle)}</small></div></div>`).join('') || '<div class="card vacio">Todavía sin títulos.</div>'}</div>
       <p class="mini" style="margin:6px 0 0">Palmarés: solo títulos ganados (ligas y finales de copa o de playoff ganadas, detectadas por la ronda del calendario exportado de FM).</p>
       <div class="grid g2" style="margin-top:14px">
         <div class="card"><h4 style="margin-top:0">Ascensos</h4><ul class="facts" style="grid-template-columns:1fr">${pal.asc.map(s => `<li>▲ <b>${s.t}</b>: de la ${esc(LIGA_CORTA(s.liga))} a la ${esc(LIGA_CORTA(s.sig.liga))}${s.lg ? ` (${s.lg.pos}.º, ${s.lg.pts} pts${s.ps.some(p => p.ck === 'PO') ? ', vía playoff' : ''})` : ''}</li>`).join('') || '<li>Sin ascensos todavía.</li>'}</ul></div>

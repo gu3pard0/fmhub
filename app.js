@@ -48,6 +48,10 @@ function preparar() {
             hora: det.hora || '', oficial: p.competicion !== 'Amistoso', clave: p.fecha + '|' + p.local + '|' + p.visitante};
   });
   // traspasos de verdad y promociones de la cantera (FM las apunta como altas sin club de origen)
+  // un traspaso no puede ser posterior a la fecha del juego (último partido + 120 días): si lo es, está mal leído
+  const ultimoPartido = D.partidos.length ? D.partidos[D.partidos.length - 1].fecha : null;
+  const limite = ultimoPartido ? new Date(new Date(ultimoPartido).getTime() + 120 * 864e5).toISOString().slice(0, 10) : '9999';
+  D.traspasos = D.traspasos.filter(t => t.fecha <= limite);
   IDX.traspasos = D.traspasos.filter(t => t.tipo !== 'cantera');
   IDX.cantera = D.traspasos.filter(t => t.tipo === 'cantera');
   IDX.golesPorPartido = {};
@@ -218,7 +222,7 @@ function novedades() {
   for (const [f, ts] of Object.entries(promo).slice(-2)) out.push({f, juego: true, tag: 'Cantera', cls: 'g',
     t: `${ts.length} canteranos suben del filial: ${ts.map(t => jug(t.iu, t.jugador)).join(', ')}`});
   for (const t of IDX.traspasos.slice(-12)) out.push({f: t.fecha, juego: true, tag: t.entra ? 'Llegada' : 'Salida', cls: t.entra ? 'g' : 'r',
-    t: `${jug(t.iu, t.jugador)} ${t.entra ? 'llega del' : 'se va al'} ${esc(t.otro_club || 'mercado libre')}${t.cesion ? ' (cesión)' : t.precio_eur ? ' por ' + eur(t.precio_eur) : ''}`});
+    t: t.origen === 'plantilla' ? `${jug(t.iu, t.jugador)} ${t.entra ? 'llega a la plantilla' : 'deja la plantilla'} (club y precio por confirmar)` : `${jug(t.iu, t.jugador)} ${t.entra ? 'llega del' : 'se va al'} ${esc(t.otro_club || 'mercado libre')}${t.cesion ? ' (cesión)' : t.precio_eur ? ' por ' + eur(t.precio_eur) : ''}`});
   for (const n of out) n.cuando = n.juego ? fecha(n.f.slice(0, 10)) : cuando(n.f);
   // primero lo leído más recientemente; lo de la partida va junto a la última lectura, en orden de fecha de juego
   const ult = D.capturas.reduce((m, c) => c.fecha_real > m ? c.fecha_real : m, '');
@@ -339,7 +343,9 @@ V.traspasos = () => {
   const lista = porT[sel] || [];
   const gasto = e => lista.filter(t => !!t.entra === e && !t.cesion).reduce((s, t) => s + (t.precio_eur || 0), 0);
   const pl = (n, uno, varios = uno + 's') => `${n} ${n === 1 ? uno : varios}`;
-  const fila = t => `<div class="tri"><span class="d">${fecha(t.fecha)}</span><span><b>${jug(t.iu, t.jugador)}</b> <span style="color:var(--mut)">${esc(t.otro_club || 'agente libre')}${t.origen === 'varela.html' ? ' · de varela.html' : ''}</span></span><span class="f">${t.cesion ? 'cesión' : t.precio_eur ? eur(t.precio_eur) : 'libre'}</span></div>`;
+  const fila = t => t.origen === 'plantilla'
+    ? `<div class="tri"><span class="d">≈ ${fecha(t.fecha)}</span><span><b>${jug(t.iu, t.jugador)}</b> <span style="color:var(--mut)">${t.entra ? 'llega a la plantilla' : 'deja la plantilla'} · provisional: abre en FM el historial de traspasos del club para el club y el precio</span></span><span class="f">por confirmar</span></div>`
+    : `<div class="tri"><span class="d">${fecha(t.fecha)}</span><span><b>${jug(t.iu, t.jugador)}</b> <span style="color:var(--mut)">${esc(t.otro_club || 'agente libre')}${t.origen === 'varela.html' ? ' · de varela.html' : ''}</span></span><span class="f">${t.cesion ? 'cesión' : t.precio_eur ? eur(t.precio_eur) : 'libre'}</span></div>`;
   const col = (titulo, cls, arr) => `<div class="card"><h4 style="margin-top:0" class="${cls}">${titulo} · ${arr.length}</h4>${arr.map(fila).join('') || '<p class="vacio">Ninguno.</p>'}</div>`;
   const entra = lista.filter(t => t.entra), sale = lista.filter(t => !t.entra);
   const resumen = `${gasto(true) ? 'Entradas ' + eur(gasto(true)) : 'Entradas a coste cero'} · ${gasto(false) ? 'salidas ' + eur(gasto(false)) : 'salidas sin ingresos'} · ${pl(entra.filter(t => !t.cesion).length, 'fichaje')}, ${pl(sale.filter(t => !t.cesion).length, 'baja')} y ${pl(sale.filter(t => t.cesion).length, 'cesión', 'cesiones')}`;
