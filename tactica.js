@@ -87,6 +87,39 @@ const TAC = (() => {
     return {total: calidad + rend + encaje + forma, media, calidad, rend, encaje};
   }
 
+  // Nadie es titular en dos puestos. Se recorren los puestos empezando por `primero` (el que acabas de tocar
+  // manda); si el titular de un puesto ya lo es en otro, baja a 2º y sube el primero libre de ese puesto.
+  function unTitularPorJugador(primero = 0) {
+    const usados = new Set(), orden = [primero, ...t.slots.keys()].filter((v, i, a) => a.indexOf(v) === i && t.slots[v]);
+    for (const i of orden) {
+      const op = t.slots[i].opciones;
+      const j = op.findIndex(o => !usados.has(o.iu));
+      if (j > 0) { const [libre] = op.splice(j, 1); op.unshift(libre); }
+      if (j >= 0) usados.add(op[0].iu);
+    }
+  }
+  // ordena todos los puestos y reparte los titulares: el jugador disputado se queda donde más puntúa
+  function ordenarTodo(modo) {
+    const R = rendimiento(), ref = referencias(R);
+    const clave = (o, code) => modo === 'est' ? (o.estrellas || 0) * 100 + prioridad(o, code, R, ref).total
+      : modo === 'media' ? (R[o.iu]?.n || 0) * 100 + prioridad(o, code, R, ref).total : prioridad(o, code, R, ref).total;
+    for (const x of t.slots) x.opciones.sort((a, b) => clave(b, x.code) - clave(a, x.code));
+    const usados = new Set(), pendientes = new Set(t.slots.keys());
+    while (pendientes.size) {
+      let mejor = null;
+      for (const i of pendientes) {
+        const o = t.slots[i].opciones.find(o => !usados.has(o.iu));
+        const v = o ? clave(o, t.slots[i].code) : -Infinity;
+        if (!mejor || v > mejor.v) mejor = {i, o, v};
+      }
+      pendientes.delete(mejor.i);
+      if (!mejor.o) continue;
+      usados.add(mejor.o.iu);
+      const op = t.slots[mejor.i].opciones;
+      op.splice(op.indexOf(mejor.o), 1); op.unshift(mejor.o);
+    }
+  }
+
   // ---------------------------------------------------------------- estado y guardado
   function nueva(f) { return {formacion: f, slots: FORMACIONES[f].map(([code], i) => ({code, rol: (ROLES[f] || [])[i] || '', opciones: []}))}; }
   function cargarTactica() {
@@ -95,6 +128,7 @@ const TAC = (() => {
     if (!LOCAL) { try { const l = JSON.parse(localStorage.getItem('fmhub-tactica') || 'null'); if (l) guardada = l; } catch (e) {} }
     t = guardada && FORMACIONES[guardada.formacion] && Array.isArray(guardada.slots) ? JSON.parse(JSON.stringify(guardada)) : nueva('4-4-2');
     while (t.slots.length < 11) t.slots.push({code: 'ME-C', opciones: []});
+    unTitularPorJugador();
     estadoGuardado = D.tactica?.actualizado ? `Guardada el ${new Date(D.tactica.actualizado).toLocaleString('es-ES', {dateStyle: 'short', timeStyle: 'short'})}` : 'Sin guardar todavía';
   }
   function guardar() {
@@ -167,15 +201,16 @@ const TAC = (() => {
     const editor = `<div class="card tac-ed"><div class="tac-edc"><h4 style="margin:0">${esc(PUESTOS[s.code] || s.code)}${s.rol ? ` · ${esc(s.rol)}` : ''}</h4>
         <span class="tac-edf"><label class="mini">Puesto <select data-tcode>${Object.keys(PUESTOS).map(c => `<option value="${c}" ${c === s.code ? 'selected' : ''}>${corto(c)} · ${PUESTOS[c]}</option>`).join('')}</select></label>
         <label class="mini">Rol <input data-trol value="${esc(s.rol || '')}" placeholder="p. ej. DLA · At" maxlength="24"></label></span></div>
-      <p class="mini" style="margin:4px 0 10px">Ordena de más a menos: el primero es tu titular. Las estrellas son su calidad en este puesto (como las del cuerpo técnico); el rendimiento lo pone FM Hub.</p>
-      ${s.opciones.length > 1 ? `<div class="tac-ord"><span class="mini">Ordenar:</span><button type="button" class="chip" data-tord="est">Por estrellas</button><button type="button" class="chip" data-tord="media">Por media</button><button type="button" class="chip" data-tord="mejor" title="Mezcla tus estrellas con la media de esta temporada, la anterior y toda su etapa en el club, si es su puesto natural y los minutos que lleva">Mejor opción</button></div>` : ''}
+      <p class="mini" style="margin:4px 0 10px">Ordena de más a menos: el primero es tu titular. Nadie puede ser titular en dos puestos: si ya lo es en otro, aquí como mucho es el 2º. Las estrellas son su calidad en este puesto (como las del cuerpo técnico); el rendimiento lo pone FM Hub.</p>
       ${filas || '<p class="vacio">Nadie todavía para este puesto.</p>'}
       <label class="tac-add">Añadir <select data-tadd><option value="">Elige un jugador…</option>${grupoCand('En su puesto natural', nat)}${grupoCand('Puestos parecidos', cer)}${grupoCand('Resto de la plantilla', resto)}</select></label></div>`;
     const vacia = t.slots.every(x => !x.opciones.length);
     return `<section><div class="wrap"><h2 data-n="12">Mi táctica</h2>
       <p class="sub">Pon tu once, todas las opciones de cada puesto en tu orden y sus estrellas (su calidad, no cómo juegan). FM Hub lo cruza con lo que ve en todos los partidos (medias, minutos, sueldos, edades y contratos) y te dice dónde falta profundidad, a quién vender y a quién dar más minutos.${LOCAL ? ' Se guarda solo en FM Hub.' : ' En la web publicada los cambios se quedan solo en este navegador.'}</p>
       <div class="tac-barra"><label>Táctica <input data-tnombre value="${esc(t.nombre || '')}" placeholder="Nombre de tu táctica en FM" maxlength="60"></label><label>Formación <select data-tform>${Object.keys(FORMACIONES).map(f => `<option ${f === t.formacion ? 'selected' : ''}>${f}</option>`).join('')}</select></label>
-        <button type="button" class="chip" data-trell>${vacia ? 'Rellenar con lo que ve FM Hub' : 'Volver a rellenar con lo que ve FM Hub'}</button><span class="mini" id="tacEstado">${esc(estadoGuardado)}</span></div>
+        <button type="button" class="chip" data-trell>${vacia ? 'Rellenar con lo que ve FM Hub' : 'Volver a rellenar con lo que ve FM Hub'}</button></div>
+      <div class="tac-ord"><span class="mini">Ordenar todos los puestos:</span><button type="button" class="chip" data-tord="est">Por estrellas</button><button type="button" class="chip" data-tord="media">Por media</button><button type="button" class="chip" data-tord="mejor" title="Mezcla tus estrellas con la media de esta temporada, la anterior y toda su etapa en el club, si es su puesto natural y los minutos que lleva">Mejor opción</button>
+        <span class="mini" id="tacEstado">${esc(estadoGuardado)}</span></div>
       <div class="tac"><div class="campo"><div class="campo-lineas"></div>${campo}</div>${editor}</div>
       ${consejos(R, nombre)}
     </div></section>`;
@@ -315,16 +350,11 @@ const TAC = (() => {
     const b = ev.target.closest('button'); if (!b || !t) return;
     const ds = b.dataset, s = t.slots[sel];
     if (ds.tslot !== undefined) sel = +ds.tslot;
-    else if (ds.tup !== undefined) { const k = +ds.tup; [s.opciones[k - 1], s.opciones[k]] = [s.opciones[k], s.opciones[k - 1]]; guardar(); }
-    else if (ds.tdown !== undefined) { const k = +ds.tdown; [s.opciones[k + 1], s.opciones[k]] = [s.opciones[k], s.opciones[k + 1]]; guardar(); }
-    else if (ds.tdel !== undefined) { s.opciones.splice(+ds.tdel, 1); guardar(); }
+    else if (ds.tup !== undefined) { const k = +ds.tup; [s.opciones[k - 1], s.opciones[k]] = [s.opciones[k], s.opciones[k - 1]]; unTitularPorJugador(sel); guardar(); }
+    else if (ds.tdown !== undefined) { const k = +ds.tdown; [s.opciones[k + 1], s.opciones[k]] = [s.opciones[k], s.opciones[k + 1]]; unTitularPorJugador(sel); guardar(); }
+    else if (ds.tdel !== undefined) { s.opciones.splice(+ds.tdel, 1); unTitularPorJugador(sel); guardar(); }
     else if (ds.tst) { const [k, n] = ds.tst.split(':').map(Number), o = s.opciones[k]; o.estrellas = o.estrellas === n ? n - .5 : n; guardar(); }
-    else if (ds.tord) {
-      const R = rendimiento(), ref = referencias(R);
-      const clave = ds.tord === 'est' ? o => (o.estrellas || 0) * 100 + prioridad(o, s.code, R, ref).total
-        : ds.tord === 'media' ? o => (R[o.iu]?.n || 0) * 100 + prioridad(o, s.code, R, ref).total : o => prioridad(o, s.code, R, ref).total;
-      s.opciones.sort((a, b) => clave(b) - clave(a)); guardar();
-    }
+    else if (ds.tord) { ordenarTodo(ds.tord); guardar(); }
     else if (ds.tfil) filtro = ds.tfil;
     else if (ds.trell !== undefined) { if (t.slots.some(x => x.opciones.length) && !confirm('¿Sustituir tu táctica por la que propone FM Hub? Se pierden tu orden y tus estrellas.')) return; rellenar(); guardar(); }
     else return;
@@ -343,6 +373,7 @@ const TAC = (() => {
     else if (e.matches('[data-tnombre]')) t.nombre = e.value.trim();
     else if (e.matches('[data-tadd]') && e.value) t.slots[sel].opciones.push({iu: +e.value, estrellas: 0});
     else return;
+    unTitularPorJugador(sel);
     guardar(); pintar();
   });
 
