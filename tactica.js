@@ -108,11 +108,15 @@ const TAC = (() => {
     // si ya ha jugado aquí de titular al menos 3 partidos, lo que ha rendido en este puesto pesa la mitad
     const ep = enPuesto(r, o.iu, code);
     if (ep && ep.pj >= 3) media = media ? (media + ep.n) / 2 : ep.n;
-    const calidad = o.estrellas || 2.5;
-    const rend = media ? (media - ref.mNota) * 4 : 0;
+    // sin estrellas no se le regala nada: cuenta como media estrella menos que la media de las que pusiste en ese puesto
+    const puestas = t.slots.filter(x => x.code === code).flatMap(x => x.opciones).map(x => x.estrellas).filter(Boolean);
+    const calidad = o.estrellas || (puestas.length ? Math.max(1, puestas.reduce((a, b) => a + b, 0) / puestas.length - .5) : 2);
+    // con pocos minutos la media dice poco: pesa según los minutos jugados (con ~900, unos 10 partidos, ya pesa la mitad)
+    const minutos = (r.minA || 0) + .6 * (r.minP || 0), peso = minutos / (minutos + 900);
+    const rend = media ? (media - ref.mNota) * 4 * peso : 0;
     const pos = posDe(o.iu), encaje = pos.has(code) ? .5 : (CERCA[code] || []).some(c => pos.has(c)) ? 0 : -.75;
     const forma = r.minA / ref.maxMin * .3;
-    return {total: calidad + rend + encaje + forma, media, calidad, rend, encaje, ep};
+    return {total: calidad + rend + encaje + forma, media, calidad, rend, encaje, ep, peso, sinEst: !o.estrellas};
   }
 
   // Nadie es titular en dos puestos. Se recorren los puestos empezando por `primero` (el que acabas de tocar
@@ -233,7 +237,7 @@ const TAC = (() => {
     const filas = s.opciones.map((o, k) => {
       const r = R[o.iu] || {}, natural = posDe(o.iu).has(s.code), pr = prioridad(o, s.code, R, ref);
       const otro = titularEn[o.iu] !== undefined && titularEn[o.iu] !== sel ? ` · titular en ${corto(t.slots[titularEn[o.iu]].code)}` : '';
-      return `<div class="op"><span class="nro">${k === 0 ? 'Titular' : k + 1 + 'º'}</span><div class="opn">${jug(o.iu, nombre(o.iu))}<small>${natural ? '' : 'fuera de su puesto natural · '}${r.n ? `rinde ${d2(r.n)}` : 'sin partidos suficientes'}${r.pjA ? ` · ${r.pjA} partidos y ${miles(r.minA)} min esta temporada` : ''}${r.forma ? ` · forma ${d2(r.forma)} (últ. ${r.nForma})` : ''}${pr.ep ? ` · aquí ${d2(pr.ep.n)} en ${pr.ep.pj} p.` : ''}${otro} · <span title="Calidad ${String(pr.calidad).replace('.', ',')} · rendimiento ${pr.rend >= 0 ? '+' : ''}${d2(pr.rend)} · puesto ${pr.encaje >= 0 ? '+' : ''}${d2(pr.encaje)}">prioridad ${d2(pr.total)}</span></small></div>
+      return `<div class="op"><span class="nro">${k === 0 ? 'Titular' : k + 1 + 'º'}</span><div class="opn">${jug(o.iu, nombre(o.iu))}<small>${natural ? '' : 'fuera de su puesto natural · '}${r.n ? `rinde ${d2(r.n)}` : 'sin partidos suficientes'}${r.pjA ? ` · ${r.pjA} partidos y ${miles(r.minA)} min esta temporada` : ''}${r.forma ? ` · forma ${d2(r.forma)} (últ. ${r.nForma})` : ''}${pr.ep ? ` · aquí ${d2(pr.ep.n)} en ${pr.ep.pj} p.` : ''}${pr.sinEst ? ` · sin ★: cuenta como ${verEst(Math.round(pr.calidad * 2) / 2)}` : ''}${pr.media && pr.peso < .35 ? ' · pocos minutos: su media pesa poco' : ''}${otro} · <span title="Calidad ${d2(pr.calidad)} · peso de su media ${Math.round(pr.peso * 100)} % · rendimiento ${pr.rend >= 0 ? '+' : ''}${d2(pr.rend)} · puesto ${pr.encaje >= 0 ? '+' : ''}${d2(pr.encaje)}">prioridad ${d2(pr.total)}</span></small></div>
         ${estrellas(o.estrellas || 0, k)}<span class="opb"><button type="button" data-tup="${k}" aria-label="Subir" ${k ? '' : 'disabled'}>▲</button><button type="button" data-tdown="${k}" aria-label="Bajar" ${k < s.opciones.length - 1 ? '' : 'disabled'}>▼</button><button type="button" data-tdel="${k}" aria-label="Quitar">✕</button></span></div>`;
     }).join('');
     const editor = `<div class="card tac-ed"><div class="tac-edc"><h4 style="margin:0">${esc(PUESTOS[s.code] || s.code)}${s.rol ? ` · ${esc(s.rol)}` : ''}</h4>
