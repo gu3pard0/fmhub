@@ -46,7 +46,7 @@ const TAC = (() => {
   const posDe = iu => posiciones((IDX.export[iu] || {}).posicion || (D.plantilla.find(p => p.iu === iu) || {}).posicion);
 
   // lo que ve FM Hub de cada jugador: esta temporada pesa más que la anterior
-  function rendimiento() {
+  function rendimiento(quitar = null) {
     const ss = HIST.S(), prev = [...ss].reverse().find(s => s.completa && s.t !== IDX.temporadaActual);
     const pq = {}; for (const p of prev?.sq || []) pq[p.iu] = p;
     const out = {}, car = {}, antes = {};
@@ -55,7 +55,13 @@ const TAC = (() => {
     for (const tr of IDX.traspasos) if (tr.entra && tr.iu && (!llegada[tr.iu] || tr.fecha > llegada[tr.iu])) llegada[tr.iu] = tr.fecha;
     for (const x of ss) for (const q of x.sq) if (q.avg && q.pj) { const c = (car[q.iu] ||= {s: 0, pj: 0, temps: 0}); c.s += q.avg * q.pj; c.pj += q.pj; c.temps++; }
     for (const p of D.plantilla) {
-      const a = (IDX.stats[p.iu] || {}).total || {}, q = pq[p.iu] || {}, c = car[p.iu];
+      let a = (IDX.stats[p.iu] || {}).total || {};
+      const q = pq[p.iu] || {}, c = car[p.iu], x = quitar && quitar[p.iu];
+      if (x && a.partidos) {
+        const pj = Math.max(0, a.partidos - x.partidos);
+        a = {partidos: pj, minutos: Math.max(0, (a.minutos || 0) - x.minutos),
+             nota_media: pj && a.nota_media ? (a.nota_media * a.partidos - (x.nota || a.nota_media) * x.partidos) / pj : 0};
+      }
       const pjA = a.partidos || 0, pjP = q.pj || 0, nA = a.nota_media || 0, nP = q.avg || 0;
       const w = (nA ? pjA * 1.5 : 0) + (nP ? pjP : 0);
       out[p.iu] = {n: w >= 3 ? ((nA ? nA * pjA * 1.5 : 0) + (nP ? nP * pjP : 0)) / w : null, pjA, minA: a.minutos || 0, nA, pjP, nP, minP: q.min || 0, prevT: prev?.t,
@@ -213,6 +219,7 @@ const TAC = (() => {
       <div class="tac-ord"><span class="mini">Ordenar todos los puestos:</span><button type="button" class="chip" data-tord="est">Por estrellas</button><button type="button" class="chip" data-tord="media">Por media</button><button type="button" class="chip" data-tord="mejor" title="Mezcla tus estrellas con la media de esta temporada, la anterior y toda su etapa en el club, si es su puesto natural y los minutos que lleva">Mejor opción</button>
         <span class="mini" id="tacEstado">${esc(estadoGuardado)}</span></div>
       <div class="tac"><div class="campo"><div class="campo-lineas"></div>${campo}</div>${editor}</div>
+      ${vacia ? '' : cambios(R, nombre)}
       ${consejos(R, nombre)}
     </div></section>`;
   }
@@ -298,6 +305,50 @@ const TAC = (() => {
     out.sort((a, b) => a.peso - b.peso);
     return `<h4>Lo que ve FM Hub</h4>${kpis}${vacia ? '' : vistazo(R, nombre, ref, titularEn, mejor, fj)}${vacia ? '<p class="vacio">Pon tu once (o pulsa «Rellenar con lo que ve FM Hub») y aquí aparecerán los consejos.</p>'
       : `${conEst ? '' : '<p class="mini">Aún no has puesto estrellas: sin ellas FM Hub no puede comparar calidad con rendimiento ni decir de qué nivel buscar.</p>'}<div class="pgrid">${out.map(x => x.html).join('') || '<p class="vacio">Todo cubierto: cada puesto tiene recambio y nadie desentona.</p>'}</div>`}`;
+  }
+
+  // ---------------------------------------------------------------- tras el último partido: quién sube y quién baja
+  // Ranking de «mejor opción» de cada puesto ahora y como estaba antes del último partido con notas por jugador
+  // (al rendimiento de cada uno se le resta lo de ese partido). Solo partidos oficiales.
+  function ultimoPartido() {
+    const filas = (D.partido_jugador || []).filter(f => f.temporada === IDX.temporadaActual && f.tipo !== 'amistosos' && !f.varios && f.partidos);
+    if (!filas.length) return null;
+    const fecha = filas.reduce((m, f) => f.fecha > m ? f.fecha : m, '');
+    const quitar = {};
+    for (const f of filas) if (f.fecha === fecha) quitar[f.iu] = {partidos: f.partidos, minutos: f.minutos || 0, nota: f.nota};
+    const p = (D.partidos || []).find(x => x.fecha === fecha);
+    return {fecha, quitar, partido: p};
+  }
+  function cambios(R, nombre) {
+    const up = ultimoPartido();
+    if (!up) return '';
+    const R0 = rendimiento(up.quitar), ref = referencias(R), ref0 = referencias(R0);
+    const rank = (RR, rf, x) => [...x.opciones].sort((a, b) => prioridad(b, x.code, RR, rf).total - prioridad(a, x.code, RR, rf).total).map(o => o.iu);
+    const vistos = new Set(), filas = [];
+    t.slots.forEach(x => {
+      if (vistos.has(x.code + x.rol) || x.opciones.length < 2) return;
+      vistos.add(x.code + x.rol);
+      const ahora = rank(R, ref, x), antes = rank(R0, ref0, x);
+      const ced = new Set(D.plantilla.filter(q => q.cedido_a).map(q => q.iu));   // los cedidos no juegan aquí
+      ahora.forEach((iu, k) => {
+        if (ced.has(iu)) return;
+        const k0 = antes.indexOf(iu);
+        if (k0 !== k) filas.push({x, iu, antes: k0 + 1, ahora: k + 1, d: k0 - k, q: up.quitar[iu]});
+      });
+    });
+    const pa = up.partido;
+    const rival = pa ? (pa.en_casa ? pa.visitante : pa.local) : '';
+    const marcador = pa ? (pa.en_casa ? `${pa.goles_local}-${pa.goles_visitante}` : `${pa.goles_visitante}-${pa.goles_local}`) : '';
+    const titulo = `Tras el último partido${pa ? `: ${marcador} ${pa.en_casa ? 'ante el' : 'en casa del'} ${esc(rival)}` : ''} (${fecha(up.fecha)})`;
+    if (!filas.length) return `<h4>${titulo}</h4><p class="mini">Nadie cambia de puesto en el ranking de «mejor opción» de ninguna posición.</p>`;
+    filas.sort((a, b) => Math.abs(b.d) - Math.abs(a.d) || a.ahora - b.ahora);
+    const flecha = d => d > 0 ? `<b style="color:var(--w)">▲ ${d}</b>` : `<b style="color:var(--l)">▼ ${-d}</b>`;
+    const porque = f => f.q ? `${f.q.nota ? 'nota ' + d2(f.q.nota) : 'sin nota'} en ${f.q.minutos} min` : 'no jugó: suben o bajan los demás';
+    return `<h4>${titulo}</h4>
+      <p class="sub" style="margin:0 0 8px">Cómo cambia el ranking de «mejor opción» de cada posición con lo de ese partido. Tu orden no se toca: si quieres aplicarlo, pulsa «Mejor opción».</p>
+      <div class="tw"><table class="tvis"><thead><tr><th>Posición</th><th>Jugador</th><th class="n">Antes</th><th class="n">Ahora</th><th class="n">Cambio</th><th>Por qué</th></tr></thead><tbody>
+      ${filas.map(f => `<tr><td class="mini">${f.x.rol ? esc(f.x.rol) : corto(f.x.code)}</td><td>${jug(f.iu, nombre(f.iu))}${f.ahora === 1 ? ' <span class="acc min">Ahora el mejor</span>' : f.antes === 1 ? ' <span class="acc sell">Deja de ser el mejor</span>' : ''}</td>
+        <td class="n">${f.antes}º</td><td class="n">${f.ahora}º</td><td class="n">${flecha(f.d)}</td><td class="mini">${porque(f)}</td></tr>`).join('')}</tbody></table></div>`;
   }
 
   // ---------------------------------------------------------------- tabla de un vistazo: qué hacer con cada jugador
