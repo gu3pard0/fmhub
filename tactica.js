@@ -101,8 +101,9 @@ const TAC = (() => {
   // ordena todos los puestos y reparte los titulares: el jugador disputado se queda donde más puntúa
   function ordenarTodo(modo) {
     const R = rendimiento(), ref = referencias(R);
-    const clave = (o, code) => modo === 'est' ? (o.estrellas || 0) * 100 + prioridad(o, code, R, ref).total
-      : modo === 'media' ? (R[o.iu]?.n || 0) * 100 + prioridad(o, code, R, ref).total : prioridad(o, code, R, ref).total;
+    const cedidos = new Set(D.plantilla.filter(p => p.cedido_a).map(p => p.iu));   // los cedidos no pueden jugar: al final
+    const clave = (o, code) => (cedidos.has(o.iu) ? -1e5 : 0) + (modo === 'est' ? (o.estrellas || 0) * 100 + prioridad(o, code, R, ref).total
+      : modo === 'media' ? (R[o.iu]?.n || 0) * 100 + prioridad(o, code, R, ref).total : prioridad(o, code, R, ref).total);
     for (const x of t.slots) x.opciones.sort((a, b) => clave(b, x.code) - clave(a, x.code));
     const usados = new Set(), pendientes = new Set(t.slots.keys());
     while (pendientes.size) {
