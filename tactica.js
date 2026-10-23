@@ -46,7 +46,12 @@ const TAC = (() => {
   const posDe = iu => posiciones((IDX.export[iu] || {}).posicion || (D.plantilla.find(p => p.iu === iu) || {}).posicion);
 
   // lo que ve FM Hub de cada jugador: esta temporada pesa más que la anterior
-  function rendimiento(quitar = null) {
+  function rendimiento(quitar = null, sinFecha = null) {
+    const porJug = {};
+    for (const f of D.partido_jugador || [])
+      if (f.temporada === IDX.temporadaActual && f.tipo !== 'amistosos' && !f.varios && f.nota && f.fecha && f.fecha !== sinFecha)
+        (porJug[f.iu] ||= []).push({fecha: f.fecha, nota: f.nota, min: f.minutos || 0});
+    for (const l of Object.values(porJug)) l.sort((a, b) => b.fecha < a.fecha ? -1 : 1);
     const ss = HIST.S(), prev = [...ss].reverse().find(s => s.completa && s.t !== IDX.temporadaActual);
     const pq = {}; for (const p of prev?.sq || []) pq[p.iu] = p;
     const out = {}, car = {}, antes = {};
@@ -66,7 +71,10 @@ const TAC = (() => {
       const w = (nA ? pjA * 1.5 : 0) + (nP ? pjP : 0);
       out[p.iu] = {n: w >= 3 ? ((nA ? nA * pjA * 1.5 : 0) + (nP ? nP * pjP : 0)) / w : null, pjA, minA: a.minutos || 0, nA, pjP, nP, minP: q.min || 0, prevT: prev?.t,
         nCar: c && c.pj >= 5 ? c.s / c.pj : null, pjCar: c ? c.pj : 0, temps: c ? c.temps : 0,
-        nuevo: llegada[p.iu] ? llegada[p.iu] >= inicio : !antes[p.iu], llegada: llegada[p.iu]};
+        nuevo: llegada[p.iu] ? llegada[p.iu] >= inicio : !antes[p.iu], llegada: llegada[p.iu], partidos: porJug[p.iu] || []};
+      const u5 = out[p.iu].partidos.slice(0, 5);
+      out[p.iu].forma = u5.length >= 2 ? u5.reduce((a, x) => a + x.nota, 0) / u5.length : null;
+      out[p.iu].nForma = u5.length;
     }
     return out;
   }
@@ -81,16 +89,30 @@ const TAC = (() => {
   // «Mejor opción»: cuánto merece jugar en este puesto. Mezcla tu calidad (estrellas) con lo que ve FM Hub:
   // media de esta temporada (50 %), de la anterior (30 %) y de toda su etapa en el club (20 %) frente a la del
   // equipo (0,25 de media = 1 estrella), si es su puesto natural y los minutos que ya lleva.
+  function puestoEn(fecha, iu) {
+    let e = null;
+    for (const h of t.historial || []) if (h.desde <= fecha) e = h;
+    return e ? e.tit[iu] : undefined;
+  }
+  // rendimiento en este puesto: partidos de 45 minutos o más en los que era tu titular aquí
+  function enPuesto(r, iu, code) {
+    const l = (r.partidos || []).filter(x => x.min >= 45 && puestoEn(x.fecha, iu) === code);
+    return l.length ? {n: l.reduce((a, x) => a + x.nota, 0) / l.length, pj: l.length} : null;
+  }
   function prioridad(o, code, R, ref) {
     const r = R[o.iu] || {};
-    const partes = [[r.pjA >= 3 && r.nA, .5], [r.pjP >= 5 && r.nP, .3], [r.pjCar >= 10 && r.nCar, .2]].filter(([v]) => v);
+    // forma (últimos 5 partidos) 30 %, temporada 30 %, temporada anterior 20 %, toda su etapa en el club 20 %
+    const partes = [[r.forma, .3], [r.pjA >= 3 && r.nA, .3], [r.pjP >= 5 && r.nP, .2], [r.pjCar >= 10 && r.nCar, .2]].filter(([v]) => v);
     const w = partes.reduce((a, [, k]) => a + k, 0);
-    const media = w ? partes.reduce((a, [v, k]) => a + v * k, 0) / w : null;
+    let media = w ? partes.reduce((a, [v, k]) => a + v * k, 0) / w : null;
+    // si ya ha jugado aquí de titular al menos 3 partidos, lo que ha rendido en este puesto pesa la mitad
+    const ep = enPuesto(r, o.iu, code);
+    if (ep && ep.pj >= 3) media = media ? (media + ep.n) / 2 : ep.n;
     const calidad = o.estrellas || 2.5;
     const rend = media ? (media - ref.mNota) * 4 : 0;
     const pos = posDe(o.iu), encaje = pos.has(code) ? .5 : (CERCA[code] || []).some(c => pos.has(c)) ? 0 : -.75;
     const forma = r.minA / ref.maxMin * .3;
-    return {total: calidad + rend + encaje + forma, media, calidad, rend, encaje};
+    return {total: calidad + rend + encaje + forma, media, calidad, rend, encaje, ep};
   }
 
   // Nadie es titular en dos puestos. Se recorren los puestos empezando por `primero` (el que acabas de tocar
@@ -138,7 +160,16 @@ const TAC = (() => {
     unTitularPorJugador();
     estadoGuardado = D.tactica?.actualizado ? `Guardada el ${new Date(D.tactica.actualizado).toLocaleString('es-ES', {dateStyle: 'short', timeStyle: 'short'})}` : 'Sin guardar todavía';
   }
+  function apuntarOnce() {
+    const tit = {};
+    for (const x of t.slots) if (x.opciones[0]) tit[x.opciones[0].iu] = x.code;
+    const h = (t.historial ||= []), u = h[h.length - 1], desde = (IDX.fechaJuego || new Date().toISOString()).slice(0, 10);
+    if (u && JSON.stringify(u.tit) === JSON.stringify(tit)) return;
+    if (u && u.desde === desde) u.tit = tit; else h.push({desde, tit});
+    if (h.length > 300) h.splice(0, h.length - 300);
+  }
   function guardar() {
+    apuntarOnce();
     clearTimeout(temporizador);
     estadoGuardado = 'Guardando…'; marcarEstado();
     temporizador = setTimeout(async () => {
@@ -202,7 +233,7 @@ const TAC = (() => {
     const filas = s.opciones.map((o, k) => {
       const r = R[o.iu] || {}, natural = posDe(o.iu).has(s.code), pr = prioridad(o, s.code, R, ref);
       const otro = titularEn[o.iu] !== undefined && titularEn[o.iu] !== sel ? ` · titular en ${corto(t.slots[titularEn[o.iu]].code)}` : '';
-      return `<div class="op"><span class="nro">${k === 0 ? 'Titular' : k + 1 + 'º'}</span><div class="opn">${jug(o.iu, nombre(o.iu))}<small>${natural ? '' : 'fuera de su puesto natural · '}${r.n ? `rinde ${d2(r.n)}` : 'sin partidos suficientes'}${r.pjA ? ` · ${r.pjA} partidos y ${miles(r.minA)} min esta temporada` : ''}${otro} · <span title="Calidad ${String(pr.calidad).replace('.', ',')} · rendimiento ${pr.rend >= 0 ? '+' : ''}${d2(pr.rend)} · puesto ${pr.encaje >= 0 ? '+' : ''}${d2(pr.encaje)}">prioridad ${d2(pr.total)}</span></small></div>
+      return `<div class="op"><span class="nro">${k === 0 ? 'Titular' : k + 1 + 'º'}</span><div class="opn">${jug(o.iu, nombre(o.iu))}<small>${natural ? '' : 'fuera de su puesto natural · '}${r.n ? `rinde ${d2(r.n)}` : 'sin partidos suficientes'}${r.pjA ? ` · ${r.pjA} partidos y ${miles(r.minA)} min esta temporada` : ''}${r.forma ? ` · forma ${d2(r.forma)} (últ. ${r.nForma})` : ''}${pr.ep ? ` · aquí ${d2(pr.ep.n)} en ${pr.ep.pj} p.` : ''}${otro} · <span title="Calidad ${String(pr.calidad).replace('.', ',')} · rendimiento ${pr.rend >= 0 ? '+' : ''}${d2(pr.rend)} · puesto ${pr.encaje >= 0 ? '+' : ''}${d2(pr.encaje)}">prioridad ${d2(pr.total)}</span></small></div>
         ${estrellas(o.estrellas || 0, k)}<span class="opb"><button type="button" data-tup="${k}" aria-label="Subir" ${k ? '' : 'disabled'}>▲</button><button type="button" data-tdown="${k}" aria-label="Bajar" ${k < s.opciones.length - 1 ? '' : 'disabled'}>▼</button><button type="button" data-tdel="${k}" aria-label="Quitar">✕</button></span></div>`;
     }).join('');
     const editor = `<div class="card tac-ed"><div class="tac-edc"><h4 style="margin:0">${esc(PUESTOS[s.code] || s.code)}${s.rol ? ` · ${esc(s.rol)}` : ''}</h4>
@@ -216,7 +247,7 @@ const TAC = (() => {
       <p class="sub">Pon tu once, todas las opciones de cada puesto en tu orden y sus estrellas (su calidad, no cómo juegan). FM Hub lo cruza con lo que ve en todos los partidos (medias, minutos, sueldos, edades y contratos) y te dice dónde falta profundidad, a quién vender y a quién dar más minutos.${LOCAL ? ' Se guarda solo en FM Hub.' : ' En la web publicada los cambios se quedan solo en este navegador.'}</p>
       <div class="tac-barra"><label>Táctica <input data-tnombre value="${esc(t.nombre || '')}" placeholder="Nombre de tu táctica en FM" maxlength="60"></label><label>Formación <select data-tform>${Object.keys(FORMACIONES).map(f => `<option ${f === t.formacion ? 'selected' : ''}>${f}</option>`).join('')}</select></label>
         <button type="button" class="chip" data-trell>${vacia ? 'Rellenar con lo que ve FM Hub' : 'Volver a rellenar con lo que ve FM Hub'}</button></div>
-      <div class="tac-ord"><span class="mini">Ordenar todos los puestos:</span><button type="button" class="chip" data-tord="est">Por estrellas</button><button type="button" class="chip" data-tord="media">Por media</button><button type="button" class="chip" data-tord="mejor" title="Mezcla tus estrellas con la media de esta temporada, la anterior y toda su etapa en el club, si es su puesto natural y los minutos que lleva">Mejor opción</button>
+      <div class="tac-ord"><span class="mini">Ordenar todos los puestos:</span><button type="button" class="chip" data-tord="est">Por estrellas</button><button type="button" class="chip" data-tord="media">Por media</button><button type="button" class="chip" data-tord="mejor" title="Mezcla tus estrellas (su calidad en cada puesto) con lo que rinde: forma de los últimos 5 partidos, esta temporada, la anterior y toda su etapa en el club; lo que haya rendido de titular en ese puesto; si es su puesto natural y los minutos que lleva">Mejor opción</button>
         <span class="mini" id="tacEstado">${esc(estadoGuardado)}</span></div>
       <div class="tac"><div class="campo"><div class="campo-lineas"></div>${campo}</div>${editor}</div>
       ${vacia ? '' : cambios(R, nombre)}
@@ -322,7 +353,7 @@ const TAC = (() => {
   function cambios(R, nombre) {
     const up = ultimoPartido();
     if (!up) return '';
-    const R0 = rendimiento(up.quitar), ref = referencias(R), ref0 = referencias(R0);
+    const R0 = rendimiento(up.quitar, up.fecha), ref = referencias(R), ref0 = referencias(R0);
     const rank = (RR, rf, x) => [...x.opciones].sort((a, b) => prioridad(b, x.code, RR, rf).total - prioridad(a, x.code, RR, rf).total).map(o => o.iu);
     const vistos = new Set(), filas = [];
     t.slots.forEach(x => {
