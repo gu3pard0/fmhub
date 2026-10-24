@@ -150,11 +150,23 @@ const TAC = (() => {
     }
   }
   // ordena todos los puestos y reparte los titulares: el jugador disputado se queda donde más puntúa
+  // «Mejor opción» no cambia titulares por un partido: ordena a los demás de cada puesto por prioridad y solo cambia el
+  // titular donde hay un cambio sostenido (el mismo que propone «¿Cambiar algún titular?»)
   function ordenarTodo(modo) {
     const R = rendimiento(), ref = referencias(R);
     const cedidos = new Set(D.plantilla.filter(p => p.cedido_a).map(p => p.iu));   // los cedidos no pueden jugar: al final
     const clave = (o, code) => (cedidos.has(o.iu) ? -1e5 : 0) + (modo === 'est' ? (o.estrellas || 0) * 100 + prioridad(o, code, R, ref).total
       : modo === 'media' ? (R[o.iu]?.n || 0) * 100 + prioridad(o, code, R, ref).total : prioridad(o, code, R, ref).total);
+    if (modo === 'mejor') {
+      const nuevo = {};
+      for (const pr of cambiosSostenidos(R, ref)) nuevo[pr.i] = pr.mejor.iu;
+      t.slots.forEach((x, i) => {
+        if (!x.opciones.length) return;
+        const tit = x.opciones.find(o => o.iu === (nuevo[i] ?? x.opciones[0].iu));
+        x.opciones = [tit, ...x.opciones.filter(o => o !== tit).sort((a, b) => clave(b, x.code) - clave(a, x.code))];
+      });
+      return unTitularPorJugador();
+    }
     for (const x of t.slots) x.opciones.sort((a, b) => clave(b, x.code) - clave(a, x.code));
     const usados = new Set(), pendientes = new Set(t.slots.keys());
     while (pendientes.size) {
@@ -270,7 +282,7 @@ const TAC = (() => {
       <p class="sub">Pon tu once, todas las opciones de cada puesto en tu orden y sus estrellas (su calidad, no cómo juegan). FM Hub lo cruza con lo que ve en todos los partidos (medias, minutos, sueldos, edades y contratos) y te dice dónde falta profundidad, a quién vender y a quién dar más minutos.${LOCAL ? ' Se guarda solo en FM Hub.' : ' En la web publicada los cambios se quedan solo en este navegador.'}</p>
       <div class="tac-barra"><label>Táctica <input data-tnombre value="${esc(t.nombre || '')}" placeholder="Nombre de tu táctica en FM" maxlength="60"></label><label>Formación <select data-tform>${Object.keys(FORMACIONES).map(f => `<option ${f === t.formacion ? 'selected' : ''}>${f}</option>`).join('')}</select></label>
         <button type="button" class="chip" data-trell>${vacia ? 'Rellenar con lo que ve FM Hub' : 'Volver a rellenar con lo que ve FM Hub'}</button></div>
-      <div class="tac-ord"><span class="mini">Ordenar todos los puestos:</span><button type="button" class="chip" data-tord="est">Por estrellas</button><button type="button" class="chip" data-tord="media">Por media</button><button type="button" class="chip" data-tord="mejor" title="Mezcla tus estrellas (su calidad en cada puesto) con lo que rinde: forma de los últimos 5 partidos (sobre todo los jugados en ese puesto), esta temporada, la anterior y toda su etapa en el club; lo que haya rendido de titular en ese puesto; si es su puesto natural y los minutos que lleva">Mejor opción</button>
+      <div class="tac-ord"><span class="mini">Ordenar todos los puestos:</span><button type="button" class="chip" data-tord="est">Por estrellas</button><button type="button" class="chip" data-tord="media">Por media</button><button type="button" class="chip" data-tord="mejor" title="Ordena cada puesto por prioridad (tus estrellas y lo que rinde: forma de los últimos 5 partidos, sobre todo en ese puesto, esta temporada, la anterior y su etapa en el club; si es su puesto natural y los minutos que lleva). Solo cambia un titular si hay un cambio sostenido, el mismo que propone «¿Cambiar algún titular?». Al terminar te enseña el resumen de cambios">Mejor opción</button>
         <span class="mini" id="tacEstado">${esc(estadoGuardado)}</span></div>
       <div class="tac"><div class="campo"><div class="campo-lineas"></div>${campo}</div>${editor}</div>
       ${vacia ? '' : cambios(R, nombre)}
@@ -382,6 +394,24 @@ const TAC = (() => {
     }
     return {fechas: set, quitar};
   }
+  // cambios de titular sostenidos: [{i (puesto), x, tit, mejor, ahora: [prioridad del que entra, del titular]}]
+  function cambiosSostenidos(R, ref) {
+    const fechas = fechasOficiales(), props = [];
+    if (fechas.length <= N_SOSTENIDO) return props;
+    const Rn = rendimiento(sinPartidos(fechas.slice(0, N_SOSTENIDO))), refn = referencias(Rn);
+    const ced = new Set(D.plantilla.filter(q => q.cedido_a).map(q => q.iu));
+    const titularEn = {}; t.slots.forEach((x, i) => { if (x.opciones[0]) titularEn[x.opciones[0].iu] = i; });
+    const vistos = new Set();
+    t.slots.forEach((x, i) => {
+      const tit = x.opciones[0];
+      if (!tit || vistos.has(tit.iu)) return;
+      vistos.add(tit.iu);
+      const p = o => prioridad(o, x.code, R, ref).total, p0 = o => prioridad(o, x.code, Rn, refn).total;
+      const mejor = x.opciones.slice(1).filter(o => !ced.has(o.iu) && titularEn[o.iu] === undefined).sort((a, b) => p(b) - p(a))[0];
+      if (mejor && p(mejor) - p(tit) >= MARGEN && p0(mejor) > p0(tit)) props.push({i, x, tit, mejor, ahora: [p(mejor), p(tit)]});
+    });
+    return props;
+  }
   function cambios(R, nombre) {
     const fechas = fechasOficiales();
     if (!fechas.length) return '';
@@ -406,30 +436,17 @@ const TAC = (() => {
       }
       return `<tr><td>${jug(f.iu, nombre(f.iu))}</td><td>${donde}</td><td class="n">${f.minutos || 0}</td><td class="n">${f.nota ? d2(f.nota) : '—'}</td><td>${efecto}</td></tr>`;
     };
-    // ¿algún cambio de titular sostenido?
-    const props = [];
-    if (fechas.length > N_SOSTENIDO) {
-      const Rn = rendimiento(sinPartidos(fechas.slice(0, N_SOSTENIDO))), refn = referencias(Rn);
-      const ced = new Set(D.plantilla.filter(q => q.cedido_a).map(q => q.iu));
-      const titularEn = {}; t.slots.forEach((x, i) => { if (x.opciones[0]) titularEn[x.opciones[0].iu] = i; });
-      const vistos = new Set();
-      for (const x of t.slots) {
-        const tit = x.opciones[0];
-        if (!tit || vistos.has(tit.iu)) continue;
-        vistos.add(tit.iu);
-        const p = o => prioridad(o, x.code, R, ref).total, p0 = o => prioridad(o, x.code, Rn, refn).total;
-        const mejor = x.opciones.slice(1).filter(o => !ced.has(o.iu) && titularEn[o.iu] === undefined).sort((a, b) => p(b) - p(a))[0];
-        if (mejor && p(mejor) - p(tit) >= MARGEN && p0(mejor) > p0(tit)) props.push({x, tit, mejor, ahora: [p(mejor), p(tit)]});
-      }
-    }
+    // ¿algún cambio de titular sostenido? (va antes que el detalle del último partido)
+    const props = cambiosSostenidos(R, ref);
     const propsHtml = props.length ? `<div class="pgrid">${props.map(({x, tit, mejor, ahora}) => `<div class="card pc min"><span class="tag">Cambio sostenido · ${x.rol ? esc(x.rol) : corto(x.code)}</span><h4>${esc(nombre(mejor.iu))} por delante de ${esc(nombre(tit.iu))}</h4>
-        <p>${jug(mejor.iu, nombre(mejor.iu))} tiene ${d2(ahora[0])} de prioridad en este puesto y tu titular, ${d2(ahora[1])}; y ya iba por delante antes de los ${N_SOSTENIDO} últimos partidos. Si estás de acuerdo, súbelo en el editor del puesto.</p></div>`).join('')}</div>`
+        <p>${jug(mejor.iu, nombre(mejor.iu))} tiene ${d2(ahora[0])} de prioridad en este puesto y tu titular, ${d2(ahora[1])}; y ya iba por delante antes de los ${N_SOSTENIDO} últimos partidos.</p></div>`).join('')}</div>
+      <div class="fila-btn"><button type="button" class="btn" data-tord="mejor">Aplicar ${props.length === 1 ? 'este cambio' : `estos ${props.length} cambios`} (Mejor opción)</button><span class="mini">Cambia esos titulares, ordena al resto de cada puesto por prioridad y te enseña el resumen para hacerlo en el juego.</span></div>`
       : `<p class="mini">${fechas.length > N_SOSTENIDO ? `Nada que cambiar en tu once.` : `Aún hay pocos partidos oficiales esta temporada para hablar de tendencias.`} Solo se propone un cambio de titular cuando otro va claramente por delante en ese puesto (${d2(MARGEN)} de prioridad o más) y ya iba por delante antes de los ${N_SOSTENIDO} últimos partidos: un partido suelto no basta.</p>`;
-    return `<h4>${titulo}</h4>
+    return `<h4>¿Cambiar algún titular?</h4>${propsHtml}
+      <h4>${titulo}</h4>
       <p class="sub" style="margin:0 0 8px">Dónde jugó cada uno y cuánto le mueve el partido en ese puesto. Lo que hace en un puesto cuenta entero solo para ese puesto (a medias si no se sabe dónde jugó y un cuarto para sus otros puestos), así que un partidazo de extremo no le pone primero de delantero. Tu orden no se toca.</p>
       ${jugaron.length ? `<div class="tw"><table class="tvis"><thead><tr><th>Jugador</th><th>Dónde jugó</th><th class="n">Min</th><th class="n">Nota</th><th>Efecto en ese puesto</th></tr></thead><tbody>${jugaron.map(filaJ).join('')}</tbody></table></div>` : ''}
       <p class="mini" style="margin:6px 0 0">«Dónde jugó» lo calcula FM Hub: los titulares, por tu once guardado ese día (o el hueco de tu táctica que mejor les encaja) y los suplentes heredan el puesto del jugador por el que entran (se sabe por los minutos). Si cambias el once en FM, cámbialo también aquí para que cuadre.</p>
-      <h4>¿Cambiar algún titular?</h4>${propsHtml}
 `;
   }
 
@@ -488,7 +505,8 @@ const TAC = (() => {
     else if (ds.tdown !== undefined) { const k = +ds.tdown; [s.opciones[k + 1], s.opciones[k]] = [s.opciones[k], s.opciones[k + 1]]; unTitularPorJugador(sel); guardar(); }
     else if (ds.tdel !== undefined) { s.opciones.splice(+ds.tdel, 1); unTitularPorJugador(sel); guardar(); }
     else if (ds.tst) { const [k, n] = ds.tst.split(':').map(Number), o = s.opciones[k]; o.estrellas = o.estrellas === n ? n - .5 : n; guardar(); }
-    else if (ds.tord) { ordenarTodo(ds.tord); guardar(); }
+    else if (ds.tord) { const antes = t.slots.map(x => x.opciones.map(o => o.iu)); ordenarTodo(ds.tord); guardar(); pintar(); resumenCambios(antes, ds.tord); return; }
+    else if (ds.tcopiar !== undefined) { const txt = document.getElementById('tacResumen')?.innerText || ''; navigator.clipboard?.writeText(txt).then(() => { b.textContent = 'Copiado'; }, () => {}); return; }
     else if (ds.tfil) filtro = ds.tfil;
     else if (ds.trell !== undefined) { if (t.slots.some(x => x.opciones.length) && !confirm('¿Sustituir tu táctica por la que propone FM Hub? Se pierden tu orden y tus estrellas.')) return; rellenar(); guardar(); }
     else return;
@@ -510,6 +528,30 @@ const TAC = (() => {
     unTitularPorJugador(sel);
     guardar(); pintar();
   });
+
+  // ---------------------------------------------------------------- resumen de lo que cambia al ordenar (para hacerlo en FM)
+  const MODOS = {est: 'Por estrellas', media: 'Por media', mejor: 'Mejor opción'};
+  function resumenCambios(antes, modo) {
+    const nombre = iu => (D.plantilla.find(p => p.iu === iu) || {}).nombre || IDX.nombres[iu] || '¿?';
+    const puesto = x => `${x.rol ? x.rol + ' · ' : ''}${corto(x.code)}`;
+    const filas = t.slots.map((x, i) => ({x, a: antes[i] || [], d: x.opciones.map(o => o.iu)})).filter(f => f.a.join() !== f.d.join());
+    const titulares = filas.filter(f => f.a[0] !== f.d[0]);
+    // en «Ahora», cuántos puestos sube (▲) o baja (▼) cada uno respecto a antes
+    const lista = (l, antes) => `<ol class="tac-ol">${l.map((iu, k) => { const k0 = antes ? antes.indexOf(iu) : k, d = k0 < 0 ? 0 : k0 - k;
+      return `<li>${esc(nombre(iu))}${d > 0 ? ` <span class="up">▲${d}</span>` : d < 0 ? ` <span class="dn">▼${-d}</span>` : ''}</li>`; }).join('')}</ol>`;
+    const html = !filas.length ? '<p>Tu orden ya era ese: no hay nada que cambiar.</p>' : `<div id="tacResumen">
+      <h4 style="margin-top:0">En el juego: ${titulares.length ? (titulares.length === 1 ? '1 cambio de titular' : titulares.length + ' cambios de titular') : 'los mismos titulares'}</h4>
+      ${titulares.length ? `<ul class="facts" style="grid-template-columns:1fr">${titulares.map(f => `<li><b>${esc(puesto(f.x))}</b>: sale ${esc(nombre(f.a[0]))}, entra <b>${esc(nombre(f.d[0]))}</b></li>`).join('')}</ul>` : '<p class="mini">Solo cambia el orden de los suplentes de algún puesto.</p>'}
+      <h4>Orden de cada puesto que cambia</h4>
+      <div class="tw"><table class="tvis"><thead><tr><th>Puesto</th><th>Antes</th><th>Ahora</th></tr></thead><tbody>
+      ${filas.map(f => `<tr><td><b>${esc(puesto(f.x))}</b></td><td>${lista(f.a)}</td><td>${lista(f.d, f.a)}</td></tr>`).join('')}</tbody></table></div></div>
+      <div class="fila-btn"><button type="button" class="btn sec" data-tcopiar>Copiar el resumen</button></div>`;
+    $('#mT').textContent = 'Cambios en tu táctica';
+    $('#mS').textContent = `${MODOS[modo] || modo}${modo === 'mejor' ? ': solo cambia titulares donde hay un cambio sostenido; el resto de cada puesto, por prioridad' : ''}`;
+    $('#mB').innerHTML = html;
+    ficha.iu = null;
+    if ($('#modal').hidden) { ficha.foco = document.activeElement; $('#modal').hidden = false; document.body.style.overflow = 'hidden'; $('#modal').scrollTop = 0; $('#mX').focus(); }
+  }
 
   // ---------------------------------------------------------------- dónde rinde mejor cada uno
   // por puesto: partidos oficiales jugados ahí (de titular o heredando el puesto), minutos, nota media y goles

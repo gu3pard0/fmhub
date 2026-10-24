@@ -63,7 +63,7 @@ const REP = (() => {
   }
   // lo más pequeño que tenga sentido: el propio texto tocado si es corto (un precio, una fecha), si no su bloque
   const pieza = t => {
-    if (t.closest('#rep-boton,#rep-barra,#rep-dlg')) return null;
+    if (t.closest('#rep-boton,#rep-barra,#rep-dlg,#ver-burbuja')) return null;
     if (t.nodeType === 1 && !t.matches('section,main,div.wrap,body,html') && !t.querySelector('div,p,table,ul') && texto(t).length && texto(t).length <= 80) return t;
     return t.closest(PIEZAS) || t;
   };

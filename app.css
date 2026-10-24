@@ -258,3 +258,16 @@ body.rep-modo #vista,body.rep-modo #modal,body.rep-modo header,body.rep-modo foo
 .top-b em{font:500 11px 'JetBrains Mono';color:var(--mut);font-style:normal;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media (max-width:420px){.top-b>div{grid-template-columns:96px 1fr 76px}}
 
+/* ---------- Versiones (tarjeta de estado) y burbuja fija de versión ---------- */
+.ver-f{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 12px;padding:8px 0;border-bottom:1px dashed var(--line);font-size:13.5px}
+.ver-f:last-of-type{border-bottom:0}
+.ver-f b{grid-row:span 2;font-size:12.5px;color:var(--mut);align-self:start;padding-top:1px}
+.ver-f.act b{color:var(--gold)}
+.ver-f small{color:var(--mut);font-size:12px}
+.ver-burbuja{position:fixed;left:max(14px,env(safe-area-inset-left));bottom:calc(max(14px,env(safe-area-inset-bottom)) + 46px);z-index:40;display:flex;gap:8px;align-items:baseline;border:1px solid var(--line);background:color-mix(in srgb,var(--card) 92%,transparent);backdrop-filter:blur(8px);color:var(--ink);padding:6px 12px;border-radius:99px;font:600 12px 'Public Sans';cursor:pointer;box-shadow:0 10px 30px -14px rgba(0,0,0,.5)}
+.ver-burbuja .mono{color:var(--gold)}
+.ver-burbuja small{color:var(--mut);font-size:11px;font-weight:500}
+.ver-burbuja:hover{border-color:var(--gold)}
+@media print{.ver-burbuja{display:none}}
+.tac-ol{margin:0;padding-left:20px;font-size:13px}.tac-ol li:first-child{font-weight:700}
+

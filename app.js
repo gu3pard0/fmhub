@@ -232,6 +232,7 @@ function cabecera() {
   const ver = D.version || versionActual();   // la de FM Hub (la misma que en su registro) si viene en los datos
   const selPartida = PARTIDA.lista.length > 1 ? ` · <select id="partida" class="sel-partida" aria-label="Partida">${PARTIDA.lista.map(p => `<option value="${esc(p.id)}" ${p.id === PARTIDA.id ? 'selected' : ''}>${esc(p.nombre || p.id)}</option>`).join('')}</select>` : '';
   $('#eyebrow').innerHTML = `<i class="dot ${viva ? 'on' : ''}" title="${viva ? 'FM Hub está leyendo el juego' : 'Sin lecturas recientes del juego'}"></i>FM Hub${ver ? ` <span class="ver" title="temporada de la partida · jornada de liga · lectura desde esa jornada">${esc(ver)}</span>` : ''} · ${esc(IDX.temporadaActual || '')}${IDX.fechaJuego ? ' · ' + esc(fecha(IDX.fechaJuego)) : ''}${selPartida}`;
+  burbujaVersion(ver);
   $('#titulo').innerHTML = `${esc(IDX.club)} <em>de Varela</em>`;
   $('#lead').textContent = `${HIST.entradilla()} ${window.FMHUB_ESTATICO ? 'Copia autocontenida generada el ' + fecha(D.generado.slice(0, 10)) + '.' : 'Actualizado: ' + D.generado.replace('T', ' ').slice(0, 16) + ' (' + haceCuanto(D.generado) + ').'}`;
   const gf = of.reduce((s, p) => s + p.gf, 0), gc = of.reduce((s, p) => s + p.gc, 0);
@@ -239,6 +240,25 @@ function cabecera() {
   $('#ladder').innerHTML = HIST.escalera();
   $('#pie').innerHTML = HIST.notas() + `<p class="mini">FM Hub ${esc(ver)} · solo lectura: no modifica el juego ni la partida · ${esc(D.generado.replace('T', ' ').slice(0, 16))}</p>`;
   if (!cabecera.hecha) { cabecera.hecha = true; contar(); }
+}
+
+// Burbuja fija con la versión de los datos y cuándo fue la última lectura del juego (encima de «Reportar un error»).
+// Al tocarla lleva a la tarjeta Estado de FM Hub (versiones y registro)
+function burbujaVersion(ver) {
+  let b = document.getElementById('ver-burbuja');
+  if (!b) {
+    b = document.createElement('button');
+    b.id = 'ver-burbuja'; b.type = 'button'; b.className = 'ver-burbuja';
+    b.addEventListener('click', ev => {
+      ev.stopPropagation();
+      const ir = () => document.getElementById('estado')?.scrollIntoView({behavior: 'smooth', block: 'start'});
+      if ((location.hash.slice(1) || 'inicio') === 'inicio') ir(); else { location.hash = 'inicio'; setTimeout(ir, 150); }
+    });
+    document.body.appendChild(b);
+  }
+  const lect = D.fuentes?.ultima_lectura;
+  b.innerHTML = `<span class="mono">${esc(ver || 'sin versión')}</span>${lect ? `<small>${esc(haceCuanto(lect))}</small>` : ''}`;
+  b.title = `Versión de los datos: temporada de la partida · jornada de liga · lectura desde esa jornada.${lect ? ' Última lectura del juego: ' + cuando(lect) + '.' : ''} Toca para ver el estado de FM Hub.`;
 }
 
 // ---------------------------------------------------------------- vistas
@@ -282,11 +302,14 @@ V.inicio = () => {
 // Estado de FM Hub: lo último arriba. Versiones (temporada.jornada) con sus lecturas y el registro del programa
 function estadoHtml() {
   const vs = versiones();
-  const lista = vs.slice(0, V.inicio.versiones ? vs.length : 6).map((v, i) => `<div class="tri"><span class="d mono">${esc(v.k)}.${v.n}</span><span>${v.j ? `tras la jornada ${v.j}` : 'pretemporada'} de ${esc(v.temporada)} · ${fecha(v.fj)}${i === 0 ? ' <span class="pill">actual</span>' : ''}</span><span class="f">${v.n} ${v.n === 1 ? 'lectura' : 'lecturas'} · ${esc(cuando(v.hasta))}</span></div>`).join('');
+  // dos líneas por versión: la versión y la jornada arriba, las lecturas y la hora debajo (en una columna estrecha no caben en una)
+  const lista = vs.slice(0, V.inicio.versiones ? vs.length : 6).map((v, i) => `<div class="ver-f${i === 0 ? ' act' : ''}"><b class="mono">${esc(v.k)}.${v.n}</b>
+    <span>${v.j ? `Tras la jornada ${v.j}` : 'Pretemporada'} de ${esc(v.temporada)} · ${fecha(v.fj)}${i === 0 ? ' <span class="pill">actual</span>' : ''}</span>
+    <small>${v.n} ${v.n === 1 ? 'lectura' : 'lecturas'} · la última el ${esc(cuando(v.hasta))}</small></div>`).join('');
   // el registro llega en orden de escritura (lo más antiguo primero): se le da la vuelta
   const reg = D.registro?.length ? `<h4>Registro</h4><pre class="registro">${esc([...D.registro].reverse().join('\n'))}</pre>` : '';
-  return `<div class="card"><h4 style="margin-top:0">Estado de FM Hub</h4>${fuentesHtml()}
-    ${vs.length ? `<h4>Versiones de los datos</h4><p class="mini">v<b>temporada de la partida</b>.<b>jornada de liga</b>.<b>lectura</b> desde esa jornada. La más reciente arriba.</p>${lista}${vs.length > 6 ? `<div class="fila-btn"><button class="chip" data-nver="1">${V.inicio.versiones ? 'Ver menos' : `Ver las ${vs.length}`}</button></div>` : ''}` : ''}
+  return `<div class="card" id="estado"><h4 style="margin-top:0">Estado de FM Hub</h4>${fuentesHtml()}
+    ${vs.length ? `<h4>Versiones de los datos</h4><p class="mini">Formato <b>vT.J.L</b>: T, temporada de la partida; J, jornada de liga; L, lectura desde esa jornada. La más reciente arriba.</p>${lista}${vs.length > 6 ? `<div class="fila-btn"><button class="chip" data-nver="1">${V.inicio.versiones ? 'Ver menos' : `Ver las ${vs.length}`}</button></div>` : ''}` : ''}
     ${reg}</div>`;
 }
 
@@ -439,11 +462,11 @@ V.traspasos = () => {
   const pl = (n, uno, varios = uno + 's') => `${n} ${n === 1 ? uno : varios}`;
   // los que FM Hub detecta porque aparecen o desaparecen de la plantilla: la fecha es la de la lectura en que se
   // notó; se da la horquilla desde la lectura anterior (entre esas dos fechas de juego se cerró), salvo que FM Hub
-  // haya leído la fecha del acuerdo de traspaso (fecha_fuente = 'acuerdo')
+  // haya leído la fecha exacta en FM (fecha_fuente = 'contrato': inicio de su contrato con el club nuevo)
   const fechasJuego = [...new Set(D.capturas.map(c => c.fecha_juego).filter(Boolean))].sort();
   const desdeLectura = f => fechasJuego.filter(x => x < f).pop();
   const fila = t => t.origen === 'plantilla'
-    ? `<div class="tri"><span class="d">${t.fecha_fuente === 'acuerdo' ? '' : '≈ '}${fecha(t.fecha)}</span><span><b>${jug(t.iu, t.jugador)}</b> <span style="color:var(--mut)">${t.otro_club ? esc(t.otro_club) + (t.cesion ? ' (cesión)' : '') : t.entra ? 'llega a la plantilla' : 'deja la plantilla (buscando su nuevo club)'}</span>${t.fecha_fuente !== 'acuerdo' && desdeLectura(t.fecha) ? `<br><span class="mini">entre el ${fecha(desdeLectura(t.fecha))} y el ${fecha(t.fecha)}</span>` : ''}</span><span class="f">${t.cesion ? 'cesión' : t.precio_eur ? eur(t.precio_eur) : 'sin precio'}</span></div>`
+    ? `<div class="tri"><span class="d">${t.fecha_fuente ? '' : '≈ '}${fecha(t.fecha)}</span><span><b>${jug(t.iu, t.jugador)}</b> <span style="color:var(--mut)">${t.otro_club ? esc(t.otro_club) + (t.cesion ? ' (cesión)' : '') : t.entra ? 'llega a la plantilla' : 'deja la plantilla (buscando su nuevo club)'}</span>${!t.fecha_fuente && desdeLectura(t.fecha) ? `<br><span class="mini">entre el ${fecha(desdeLectura(t.fecha))} y el ${fecha(t.fecha)}</span>` : ''}</span><span class="f">${t.cesion ? 'cesión' : t.precio_eur ? eur(t.precio_eur) : 'sin precio'}</span></div>`
     : `<div class="tri"><span class="d">${fecha(t.fecha)}</span><span><b>${jug(t.iu, t.jugador)}</b> <span style="color:var(--mut)">${esc(t.otro_club || 'agente libre')}${t.origen === 'varela.html' ? ' · de varela.html' : ''}</span></span><span class="f">${t.cesion ? 'cesión' : t.precio_eur ? eur(t.precio_eur) : 'libre'}</span></div>`;
   const col = (titulo, cls, arr) => `<div class="card"><h4 style="margin-top:0" class="${cls}">${titulo} · ${arr.length}</h4>${arr.map(fila).join('') || '<p class="vacio">Ninguno.</p>'}</div>`;
   const entra = lista.filter(t => t.entra), sale = lista.filter(t => !t.entra);
