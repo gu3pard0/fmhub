@@ -228,7 +228,7 @@ footer ul{padding-left:18px}
 .rk.r1{background:#e2b54a;color:#111}.rk.r2{background:#c9c9c9;color:#111}.rk.r3{background:#c58a4a;color:#111}
 
 /* ---------- Reportar un error ---------- */
-.rep-boton{position:fixed;left:max(14px,env(safe-area-inset-left));bottom:max(14px,env(safe-area-inset-bottom));z-index:40;border:1px solid var(--line);background:color-mix(in srgb,var(--card) 92%,transparent);backdrop-filter:blur(8px);color:var(--ink);padding:8px 13px;border-radius:99px;font:600 12.5px 'Public Sans';cursor:pointer;box-shadow:0 10px 30px -14px rgba(0,0,0,.5)}
+.rep-boton{position:fixed;left:max(14px,env(safe-area-inset-left));bottom:max(14px,env(safe-area-inset-bottom));z-index:55;border:1px solid var(--line);background:color-mix(in srgb,var(--card) 92%,transparent);backdrop-filter:blur(8px);color:var(--ink);padding:8px 13px;border-radius:99px;font:600 12.5px 'Public Sans';cursor:pointer;box-shadow:0 10px 30px -14px rgba(0,0,0,.5)}
 .rep-boton:hover{border-color:var(--gold)}
 body.rep-modo .rep-boton{background:var(--l);color:#fff;border-color:var(--l)}
 body.rep-modo #vista,body.rep-modo #modal,body.rep-modo header,body.rep-modo footer{cursor:crosshair}
@@ -264,7 +264,7 @@ body.rep-modo #vista,body.rep-modo #modal,body.rep-modo header,body.rep-modo foo
 .ver-f b{grid-row:span 2;font-size:12.5px;color:var(--mut);align-self:start;padding-top:1px}
 .ver-f.act b{color:var(--gold)}
 .ver-f small{color:var(--mut);font-size:12px}
-.ver-burbuja{position:fixed;left:max(14px,env(safe-area-inset-left));bottom:calc(max(14px,env(safe-area-inset-bottom)) + 46px);z-index:40;display:flex;gap:8px;align-items:baseline;border:1px solid var(--line);background:color-mix(in srgb,var(--card) 92%,transparent);backdrop-filter:blur(8px);color:var(--ink);padding:6px 12px;border-radius:99px;font:600 12px 'Public Sans';cursor:pointer;box-shadow:0 10px 30px -14px rgba(0,0,0,.5)}
+.ver-burbuja{position:fixed;left:max(14px,env(safe-area-inset-left));bottom:calc(max(14px,env(safe-area-inset-bottom)) + 46px);z-index:55;display:flex;gap:8px;align-items:baseline;border:1px solid var(--line);background:color-mix(in srgb,var(--card) 92%,transparent);backdrop-filter:blur(8px);color:var(--ink);padding:6px 12px;border-radius:99px;font:600 12px 'Public Sans';cursor:pointer;box-shadow:0 10px 30px -14px rgba(0,0,0,.5)}
 .ver-burbuja .mono{color:var(--gold)}
 .ver-burbuja small{color:var(--mut);font-size:11px;font-weight:500}
 .ver-burbuja:hover{border-color:var(--gold)}
