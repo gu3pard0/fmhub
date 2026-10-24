@@ -131,6 +131,9 @@ function preparar() {
   // alineaciones del calendario exportado (si se exportó con la columna de jugadores)
   IDX.alin = {};
   for (const a of D.alineaciones || []) (IDX.alin[a.fecha] ||= []).push(a);
+  // el informe de cada partido capturado de FM (tools/capturar_partidos.py): quién jugó, dónde, minutos, nota…
+  IDX.informe = {};
+  for (const r of D.partido_informe || []) (IDX.informe[r.fecha] ||= []).push(r);
   IDX.stats = {};
   for (const e of D.estadisticas) (IDX.stats[e.iu] ||= {})[e.tipo] = e;
   IDX.export = {};
@@ -451,7 +454,8 @@ V.partidos = () => {
       {k: 'res', t: 'Res.', h: p => pillRes(p) + esc(p.pen)},
       {k: 'espectadores', t: 'Público', n: 1, h: p => num(p.espectadores)},
       {k: 'gol', t: 'Goleadores', cls: 'sc', h: golesTexto},
-      {k: 'formacion', t: 'Formación', cls: 'cmp', h: p => esc(p.formacion) + (p.formacion_rival ? `<br><span class="mini">rival: ${esc(p.formacion_rival)}</span>` : '')},
+      {k: 'formacion', t: 'Formación', cls: 'cmp', h: p => esc(p.formacion || IDX.informe[p.fecha]?.[0]?.formacion || '') + (p.formacion_rival ? `<br><span class="mini">rival: ${esc(p.formacion_rival)}</span>` : '')},
+      ...(D.partido_informe?.length ? [{k: 'once', t: 'Once', h: p => IDX.informe[p.fecha] ? `<button class="chip" data-once="${p.fecha}">Ver once</button>` : '<span class="mini">—</span>'}] : []),
       ...(D.alineaciones?.length ? [{k: 'alin', t: 'Alineación', cls: 'sc', h: p => (IDX.alin[p.fecha] || []).map(a => jug(a.iu, a.jugador)).join(', ') || '—'}] : []),
     ], ps.map(p => ({...p, _cls: 'r' + p.res})), {k: 'fecha', d: 1})}
   </div></section>`;
@@ -668,10 +672,29 @@ function ficha(iu) {
   $('#mB').innerHTML = V.jugador(iu);
   if ($('#modal').hidden) { ficha.foco = document.activeElement; $('#modal').hidden = false; document.body.style.overflow = 'hidden'; $('#modal').scrollTop = 0; $('#mX').focus(); }
 }
+// el once de un partido capturado de FM (puesto, minutos, nota, goles, tarjetas y cambios), en la ventana emergente
+function verOnce(f) {
+  const rs = IDX.informe[f] || [], p = IDX.partidos.find(x => x.fecha === f);
+  ficha.iu = null;
+  $('#mT').textContent = p ? `${p.local} ${p.goles_local}-${p.goles_visitante} ${p.visitante}` : fecha(f);
+  $('#mS').textContent = [fecha(f), p?.competicion, rs[0]?.formacion, rs.some(r => r.dudoso) ? 'puede ser de otro partido (dudoso)' : ''].filter(Boolean).join(' · ');
+  const fila = r => `<tr><td class="n">${r.dorsal ?? ''}</td><td>${r.iu ? jug(r.iu, r.jugador) : esc(r.jugador || 'id ' + r.id_interno)}</td>
+    <td>${esc(r.puesto || '—')}${r.lado ? ` <small>${r.lado === 'I' ? 'izq.' : 'der.'}</small>` : ''}${r.puesto_final && r.puesto_final !== r.puesto ? ` <small>→ ${esc(r.puesto_final)}</small>` : ''}</td>
+    <td class="n">${r.minutos ?? ''}</td><td class="n">${r.nota ? Number(r.nota).toFixed(2).replace('.', ',') : '—'}</td><td class="n">${r.goles || ''}</td>
+    <td>${[r.amarilla ? `Am. ${r.amarilla}'` : '', r.roja ? `<b>Roja ${r.roja}'</b>` : ''].filter(Boolean).join(' · ')}</td>
+    <td>${[r.entra ? `entra ${r.entra}'` : '', r.sale ? `sale ${r.sale}'` : ''].filter(Boolean).join(' · ')}</td></tr>`;
+  const cab = '<thead><tr><th class="n">Nº</th><th>Jugador</th><th>Puesto</th><th class="n">Min</th><th class="n">Nota</th><th class="n">G</th><th>Tarjetas</th><th>Cambio</th></tr></thead>';
+  $('#mB').innerHTML = `<section><div class="wrap"><h4>Titulares</h4><div class="tw"><table>${cab}<tbody>${rs.filter(r => r.titular).map(fila).join('')}</tbody></table></div>
+    ${rs.some(r => !r.titular) ? `<h4>Entraron</h4><div class="tw"><table>${cab}<tbody>${rs.filter(r => !r.titular).map(fila).join('')}</tbody></table></div>` : ''}
+    <p class="mini">Del informe del partido en FM (capturado con «Capturar partidos»). El puesto es donde empezó; la flecha, donde acabó. Sin rol: FM no lo guarda en el informe.</p></div></section>`;
+  if ($('#modal').hidden) { ficha.foco = document.activeElement; $('#modal').hidden = false; document.body.style.overflow = 'hidden'; $('#modal').scrollTop = 0; $('#mX').focus(); }
+}
 function cerrarFicha() { $('#modal').hidden = true; ficha.iu = null; document.body.style.overflow = ''; try { ficha.foco?.focus(); } catch (e) {} }
 document.addEventListener('click', ev => {
   const a = ev.target.closest('a.j[href^="#jugador/"]');
   if (a && location.hash.slice(1).split('/')[0] !== 'jugador') { ev.preventDefault(); ficha(a.getAttribute('href').split('/')[1]); return; }
+  const o = ev.target.closest('[data-once]');
+  if (o) { verOnce(o.dataset.once); return; }
   if (ev.target.id === 'modal' || ev.target.closest('#mX')) cerrarFicha();
 });
 document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !$('#modal').hidden) cerrarFicha(); });

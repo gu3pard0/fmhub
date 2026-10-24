@@ -453,6 +453,27 @@ const TAC = (() => {
 `;
   }
 
+  // lo mismo que «¿Cambiar algún titular?» y «Tras el último partido», resumido para la pastilla de FM Hub en directo
+  // (vivo.js): {fecha, titulo, props: [{puesto, entra, sale, ahora}], jugaron: [{iu, nombre, donde, min, nota}]} o null
+  function avisoUltimo() {
+    cargarTactica();
+    const fechas = fechasOficiales();
+    if (!fechas.length) return null;
+    const fu = fechas[0], R = rendimiento(), ref = referencias(R);
+    const nombre = iu => (D.plantilla.find(p => p.iu === iu) || {}).nombre || IDX.nombres[iu] || '¿?';
+    const pa = (D.partidos || []).find(x => x.fecha === fu);
+    const rival = pa ? (pa.en_casa ? pa.visitante : pa.local) : '';
+    const marcador = pa ? (pa.en_casa ? `${pa.goles_local}-${pa.goles_visitante}` : `${pa.goles_visitante}-${pa.goles_local}`) : '';
+    const props = t.slots.some(x => x.opciones.length) ? cambiosSostenidos(R, ref).map(({x, tit, mejor, ahora}) =>
+      ({puesto: x.rol || corto(x.code), entra: nombre(mejor.iu), sale: nombre(tit.iu), ahora})) : null;
+    const jugaron = (D.partido_jugador || []).filter(f => f.fecha === fu && f.tipo !== 'amistosos' && !f.varios && f.partidos)
+      .sort((a, b) => (b.titular || 0) - (a.titular || 0) || (b.minutos || 0) - (a.minutos || 0))
+      .map(f => { const dj = dondeJugo(fu, f.iu) || {}, code = puestoDe(fu, f.iu, f.titular);
+        return {iu: f.iu, nombre: nombre(f.iu), donde: code ? corto(code) + (dj.lado ? (dj.lado === 'I' ? ' izq.' : ' der.') : '') : (f.titular ? '¿?' : 'suplente'),
+                entra: dj.fuente === 'heredada' || (!f.titular && dj.entra) ? dj.entra : null, min: f.minutos || 0, nota: f.nota}; });
+    return {fecha: fu, titulo: `${marcador} ${pa ? (pa.en_casa ? 'ante el ' : 'en casa del ') + rival : ''}`.trim(), props, jugaron, pocos: fechas.length <= N_SOSTENIDO};
+  }
+
   // ---------------------------------------------------------------- tabla de un vistazo: qué hacer con cada jugador
   const ACCIONES = {renovar: ['Renovar', 'now', 1], vender: ['Vender', 'sell', 0], minutos: ['Más minutos', 'min', 2], ceder: ['Ceder', 'min', 4], dejar: ['Dejar ir', 'sell', 3],
     relevo: ['Buscar relevo', 'now', 5], debajo: ['Rinde por debajo', 'now', 6], pilar: ['Pilar', 'ok', 8], titular: ['Titular', 'ok', 9], rotacion: ['Rotación', 'neutro', 10],
@@ -569,6 +590,16 @@ const TAC = (() => {
       if (dondeJugo(f.fecha, iu)?.fuente === 'heredada') o.her++;
       if (f.nota) { o.sn += f.nota; o.nn++; }
     }
+    // partidos sin datos partido a partido (anteriores a FM Hub) pero con su informe capturado de FM
+    const conPj = new Set((D.partido_jugador || []).filter(f => f.iu === iu && !f.varios).map(f => f.fecha));
+    for (const r of D.partido_informe || []) {
+      if (r.iu !== iu || conPj.has(r.fecha) || !r.puesto) continue;
+      const p = IDX.partidos.find(x => x.fecha === r.fecha);
+      if (p && !p.oficial) continue;
+      const o = (g[r.puesto] ||= {code: r.puesto, pj: 0, min: 0, sn: 0, nn: 0, g: 0, a: 0, her: 0, temps: new Set()});
+      o.pj++; o.min += r.minutos || 0; o.g += r.goles || 0; if (p) o.temps.add(p.temporada);
+      if (r.nota) { o.sn += r.nota; o.nn++; }
+    }
     return Object.values(g).map(o => ({...o, nota: o.nn ? o.sn / o.nn : null})).sort((a, b) => b.min - a.min);
   }
   const PJ_FIABLE = 3;   // partidos con nota en un puesto para fiarse de su media ahí
@@ -578,7 +609,7 @@ const TAC = (() => {
     const fiables = l.filter(o => o.nn >= PJ_FIABLE), mejor = fiables.length > 1 ? [...fiables].sort((a, b) => b.nota - a.nota)[0] : null;
     return `<h4>Por puesto</h4><div class="tw"><table class="tvis"><thead><tr><th>Puesto</th><th class="n">PJ</th><th class="n">Min</th><th class="n">Nota</th><th class="n">G</th><th class="n">A</th><th class="n">Entrando de suplente</th></tr></thead><tbody>
       ${l.map(o => `<tr><td>${esc(PUESTOS[o.code] || o.code)} <small>${corto(o.code)}</small>${mejor && o === mejor ? ' <span class="acc ok">Donde mejor rinde</span>' : ''}</td><td class="n">${o.pj}</td><td class="n">${miles(o.min)}</td><td class="n">${o.nota ? d2(o.nota) + (o.nn < PJ_FIABLE ? ' <small>(pocos)</small>' : '') : '—'}</td><td class="n">${o.g}</td><td class="n">${o.a}</td><td class="n">${o.her || '—'}</td></tr>`).join('')}</tbody></table></div>
-      <p class="mini">Partidos oficiales desde que FM Hub lee partido a partido. El puesto lo calcula FM Hub (titulares por tu once guardado; los suplentes heredan el del jugador por el que entran).</p>`;
+      <p class="mini">Partidos oficiales desde que FM Hub lee partido a partido, más los capturados de FM con «Capturar partidos» (con su puesto real). En el resto, el puesto lo calcula FM Hub (el once leído de FM o tu once guardado; los suplentes heredan el del jugador por el que entran).</p>`;
   }
   // la plantilla entera: puesto más jugado y puesto donde mejor rinde (si son distintos, es una pista)
   function dondeRinden(nombre) {
@@ -596,5 +627,5 @@ const TAC = (() => {
         <td class="mini">${l.map(o => `${corto(o.code)} ${o.pj}${o.nota ? ' (' + d2(o.nota) + ')' : ''}`).join(' · ')}</td></tr>`).join('')}</tbody></table></div>`;
   }
 
-  return {vista, posiciones, porPuestoHtml};
+  return {vista, posiciones, porPuestoHtml, avisoUltimo};
 })();
