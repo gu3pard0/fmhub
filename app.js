@@ -300,6 +300,14 @@ V.inicio = () => {
 };
 
 // Estado de FM Hub: lo último arriba. Versiones (temporada.jornada) con sus lecturas y el registro del programa
+// lo que le falta por capturar a FM Hub y qué abrir en FM (lo mismo que la pastilla «en directo» de la web local)
+const capturaHistorial = iu => (D.pendientes || []).find(p => p.iu === iu);
+function porCapturarHtml() {
+  const ps = D.pendientes || [];
+  if (!ps.length) return '';
+  return `<h4>Por capturar (${ps.length})</h4><ul class="por-cap">${ps.map(p => `<li><b>${p.iu ? 'Historial de ' + jug(p.iu) : esc(p.titulo)}</b>
+    <small>${esc(p.detalle)}</small>${p.como ? `<small class="como">Cómo: ${esc(p.como)}</small>` : ''}</li>`).join('')}</ul>`;
+}
 function estadoHtml() {
   const vs = versiones();
   // dos líneas por versión: la versión y la jornada arriba, las lecturas y la hora debajo (en una columna estrecha no caben en una)
@@ -308,7 +316,7 @@ function estadoHtml() {
     <small>${v.n} ${v.n === 1 ? 'lectura' : 'lecturas'} · la última el ${esc(cuando(v.hasta))}</small></div>`).join('');
   // el registro llega en orden de escritura (lo más antiguo primero): se le da la vuelta
   const reg = D.registro?.length ? `<h4>Registro</h4><pre class="registro">${esc([...D.registro].reverse().join('\n'))}</pre>` : '';
-  return `<div class="card" id="estado"><h4 style="margin-top:0">Estado de FM Hub</h4>${fuentesHtml()}
+  return `<div class="card" id="estado"><h4 style="margin-top:0">Estado de FM Hub</h4>${fuentesHtml()}${porCapturarHtml()}
     ${vs.length ? `<h4>Versiones de los datos</h4><p class="mini">Formato <b>vT.J.L</b>: T, temporada de la partida; J, jornada de liga; L, lectura desde esa jornada. La más reciente arriba.</p>${lista}${vs.length > 6 ? `<div class="fila-btn"><button class="chip" data-nver="1">${V.inicio.versiones ? 'Ver menos' : `Ver las ${vs.length}`}</button></div>` : ''}` : ''}
     ${reg}</div>`;
 }
@@ -592,7 +600,9 @@ V.jugador = iu => {
     {k: 'la', t: 'Asis liga', n: 1, h: r => c(r, 'liga', 'asistencias')}, {k: 'ln', t: 'Nota', n: 1, h: r => r.liga?.nota_media ? Number(r.liga.nota_media).toFixed(2) : '–'},
     {k: 'cp', t: 'PJ copa', n: 1, h: r => c(r, 'copa', 'partidos')}, {k: 'tp', t: 'PJ total', n: 1, h: r => c(r, 'total', 'partidos')},
     {k: 'tm', t: 'Min total', n: 1, h: r => num(r.total?.minutos)}, {k: 'origen', t: 'Fuente', h: r => `<span class="origen">${r.origen === 'memoria' ? 'detalle completo' : 'liga (pantalla)'}</span>`}],
-    filasC, {k: 'temporada', d: -1}) : '<p class="vacio">Sin historial de carrera guardado.</p>';
+    filasC, {k: 'temporada', d: -1}) : (IDX.historial[iu] || []).length ? '<p class="vacio">Sin etapas con ese filtro.</p>'
+      : IDX.enPlantilla.has(iu) ? `<p class="aviso-cap"><b>Falta su historial de carrera.</b> ${esc(capturaHistorial(iu)?.como || `Con FM Hub abierto, en FM: ficha de ${nombre} → Vista general → Historial de jugador.`)}</p>`
+      : '<p class="vacio">Sin historial de carrera guardado (FM Hub solo puede copiarlo mientras el jugador está en tu plantilla).</p>';
   const pj = (IDX.pj[iu] || []).filter(r => !r.varios);
   const partidosJ = pj.length ? tabla('jp' + iu, [{k: 'fecha', t: 'Fecha', h: r => fecha(r.fecha)}, {k: 'rival', t: 'Partido', h: r => esc(r.local + ' – ' + r.visitante)},
     {k: 'titular', t: 'Tit', n: 1, h: r => r.titular ? 'sí' : 'no'}, {k: 'minutos', t: 'Min', n: 1}, {k: 'goles', t: 'Gol', n: 1}, {k: 'asistencias', t: 'Asis', n: 1},
