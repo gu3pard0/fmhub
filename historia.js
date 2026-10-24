@@ -74,6 +74,14 @@ const HIST = (() => {
       const o = (filas[h.iu] ||= {});
       o[h.tipo] = h;
     }
+    // temporada en curso: la tabla de carrera de FM aún viene casi vacía (filas de liga a 0); se usan las
+    // estadísticas de la temporada que FM Hub lee de la memoria cuando tienen más partidos
+    if (t === IDX.temporadaActual) for (const [iu, st] of Object.entries(IDX.stats)) {
+      const tot = st.total;
+      if (!tot?.partidos) continue;
+      const o = (filas[iu] ||= {}), h = o.total || o.liga;
+      if (tot.partidos > (h?.partidos || 0)) o.total = {...tot, jugador: h?.jugador || IDX.nombres[iu]};
+    }
     const out = [];
     const ius = new Set([...Object.keys(filas).map(Number), ...Object.keys(fichas).map(Number)]);
     for (const iu of ius) {
@@ -455,6 +463,10 @@ const HIST = (() => {
       const k = h.iu + '|' + h.temporada + '|' + h.orden;
       (o[k] ||= {})[h.tipo] = h;
     }
+    // temporada en curso: si la tabla de carrera aún no la trae, las estadísticas leídas de la memoria
+    const conHist = new Set(Object.values(o).filter(r => (r.total || r.liga).temporada === IDX.temporadaActual && (r.total || r.liga).partidos).map(r => (r.total || r.liga).iu));
+    for (const [iu, st] of Object.entries(IDX.stats)) if (st.total?.partidos && !conHist.has(+iu))
+      o['stats|' + iu] = {total: {...st.total, iu: +iu, jugador: IDX.nombres[iu], temporada: IDX.temporadaActual}};
     const J2 = {};
     for (const r of Object.values(o)) {
       const h = r.total || r.liga;
@@ -776,6 +788,50 @@ const HIST = (() => {
       ${f.length ? `<h5>Datos interesantes</h5><ul class="facts">${f.map(x => `<li>${x}</li>`).join('')}</ul>` : ''}</div>`;
   }
 
+  // ---------------------------------------------------------------- ficha: récords en el club
+  // Puesto en el top 5 del club en cada temporada (también la que está en curso) y en toda la era Varela:
+  // goles, asistencias, penaltis, partidos, minutos, jugador del partido, nota media y porterías a cero.
+  const CAT_REC = [['g', 'goles', 'Máximo goleador'], ['a', 'asistencias', 'Máximo asistente'], ['pen', 'goles de penalti', 'Máximo goleador de penalti'],
+    ['pj', 'partidos', 'El que más partidos jugó'], ['min', 'minutos', 'El que más minutos jugó'], ['mvp', 'veces jugador del partido', 'Más veces jugador del partido'],
+    ['avg', 'nota media', 'Mejor nota media'], ['cs', 'porterías a cero', 'Más porterías a cero (portero)']];
+  function penaltisPorTemporada() {
+    if (penaltisPorTemporada.d === D) return penaltisPorTemporada.v;
+    const v = {};
+    for (const p of IDX.partidos) if (p.oficial) for (const g of golesPropios(p)) if (g.tipo === 2 && g.iu) { const o = (v[p.temporada] ||= {}); o[g.iu] = (o[g.iu] || 0) + 1; }
+    penaltisPorTemporada.d = D; penaltisPorTemporada.v = v;
+    return v;
+  }
+  // puesto (1 = el mejor; los empatados comparten puesto) de cada jugador en una categoría
+  function ranking(lista, k) {
+    const vals = lista.filter(x => x[k] > 0);
+    return iu => { const me = vals.find(x => x.iu === iu); if (!me) return null;
+      return {rk: 1 + vals.filter(x => x[k] > me[k]).length, v: me[k], empate: vals.filter(x => x[k] === me[k]).length > 1}; };
+  }
+  function records(iu) {
+    const pens = penaltisPorTemporada(), ss = S(), out = [];
+    const deTemporada = s => s.sq.filter(p => p.pj > 0).map(p => ({...p, nota: p.avg, pen: (pens[s.t] || {})[p.iu] || 0, avg: p.pj >= 15 ? p.avg : 0, cs: p.gr === 'POR' ? p.cs : 0}));
+    const anota = (donde, lista, minAvg) => {
+      for (const [k, nombre, titulo] of CAT_REC) {
+        const r = ranking(lista, k)(iu);
+        if (!r || r.rk > 5) continue;
+        out.push({donde, k, rk: r.rk, txt: `${r.rk === 1 ? `<b>${titulo}</b>` : `en ${nombre}`}${r.empate ? ' (empatado)' : ''} · ${k === 'avg' ? d2(r.v) + ` (${minAvg}+ PJ)` : miles(r.v)}`});
+      }
+    };
+    // toda la era Varela: suma de sus temporadas en el club
+    const tot = {};
+    for (const s of ss) for (const p of deTemporada(s)) {
+      const j = (tot[p.iu] ||= {iu: p.iu, g: 0, a: 0, pen: 0, pj: 0, min: 0, mvp: 0, cs: 0, sa: 0, sw: 0, gr: p.gr});
+      j.g += p.g; j.a += p.a; j.pen += p.pen; j.pj += p.pj; j.min += p.min; j.mvp += p.mvp; j.cs += p.cs;
+      if (p.nota) { j.sa += p.nota * p.pj; j.sw += p.pj; }
+    }
+    anota('Era Varela', Object.values(tot).map(j => ({...j, avg: j.sw >= 30 ? j.sa / j.sw : 0})), 30);
+    for (const s of [...ss].reverse()) anota(`${s.t}${s.t === IDX.temporadaActual && !s.completa ? ' (en curso)' : ''}`, deTemporada(s), 15);
+    if (!out.length) return '';
+    const grupos = [...new Set(out.map(x => x.donde))];
+    return `<div class="prof"><h5>Récords en el club · top 5</h5><div class="recs">${grupos.map(g => `<div><h6>${esc(g)}</h6><ul>${out.filter(x => x.donde === g).sort((a, b) => a.rk - b.rk).map(x => `<li><span class="rk r${Math.min(x.rk, 4)}">${x.rk}.º</span><span>${x.txt}</span></li>`).join('')}</ul></div>`).join('')}</div>
+      <p class="mini">Puesto entre los jugadores del ${esc(IDX.club)} en esa temporada (oficiales). La nota media pide 15 partidos en una temporada o 30 en total; las porterías a cero, solo de porteros.</p></div>`;
+  }
+
   // ---------------------------------------------------------------- cabecera y notas (como varela.html)
   function entradilla() {
     const ss = S(), tt = conTabla(), pal = palmares();
@@ -831,5 +887,5 @@ const HIST = (() => {
     if (ev.target.id === 'rvQ' && ev.target.value) location.hash = 'rivales/' + encodeURIComponent(ev.target.value);
   });
 
-  return {S, ronda, titulos, entradilla, notas, viaje, temporadas, rivales, goles, hitos, rentabilidad, economia, plan, trayectoria, exportacion, escalera, bigsPalmares, cantera, enPlantilla};
+  return {S, ronda, titulos, entradilla, notas, viaje, temporadas, rivales, goles, hitos, rentabilidad, economia, plan, trayectoria, records, exportacion, escalera, bigsPalmares, cantera, enPlantilla};
 })();

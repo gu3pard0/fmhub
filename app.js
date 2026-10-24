@@ -18,18 +18,76 @@ const NOMBRE_ATR = {'Cór':'Córners','Cen':'Centros','Reg':'Regate','Rem':'Rema
 let D = null;          // datos
 const IDX = {};        // índices calculados una vez
 
+// preferencias de este navegador (pueden no estar disponibles: modo privado, almacenamiento bloqueado)
+const leer = (k, def = null) => { try { const v = localStorage.getItem(k); return v === null ? def : JSON.parse(v); } catch (e) { return def; } };
+const apuntar = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+
+// ---------------------------------------------------------------- partidas
+// Varias partidas (distintos archivos de guardado): si FM Hub publica partidas.json (o la web local responde
+// api/partidas) con [{id, nombre, datos}], se elige cuál ver. Sin esa lista, una sola partida: datos.json.
+const PARTIDA = {lista: [], id: null};
+const clavePartida = k => PARTIDA.id ? `${k}:${PARTIDA.id}` : k;
+async function cargarPartidas() {
+  if (window.FMHUB_DATOS) return;
+  try {
+    const r = await fetch(window.FMHUB_PUBLICADO ? 'partidas.json?t=' + Date.now() : 'api/partidas', {cache: 'no-store'});
+    if (r.ok) { const l = await r.json(); PARTIDA.lista = Array.isArray(l) ? l.filter(p => p && p.id) : []; }
+  } catch (e) {}
+  const pedida = new URLSearchParams(location.search).get('partida') || leer('fmhub-partida');
+  PARTIDA.id = PARTIDA.lista.some(p => p.id === pedida) ? pedida : (PARTIDA.lista[0]?.id ?? null);
+}
+
 // ---------------------------------------------------------------- carga
 async function cargar() {
   if (window.FMHUB_DATOS) return window.FMHUB_DATOS;
   // Publicada en internet: los datos van en datos.json (FM Hub los sube cuando cambian; ?t= salta la caché de GitHub Pages)
-  const r = await fetch(window.FMHUB_PUBLICADO ? 'datos.json?t=' + Date.now() : 'api/datos', {cache: 'no-store'});
+  const p = PARTIDA.lista.find(x => x.id === PARTIDA.id);
+  const url = window.FMHUB_PUBLICADO ? (p?.datos || 'datos.json') + '?t=' + Date.now() : 'api/datos' + (p ? '?partida=' + encodeURIComponent(p.id) : '');
+  const r = await fetch(url, {cache: 'no-store'});
   if (!r.ok) throw new Error('No se pudieron leer los datos (' + r.status + ')');
   return r.json();
+}
+
+// «24/8/1988 (35 años)» o «30/6/2029» -> «1988-08-24»; lo que ya viene como fecha ISO se deja igual
+const isoDe = s => { if (!s) return null; const m = String(s).match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/); return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : String(s).slice(0, 10); };
+
+// Si la última lectura trajo la plantilla vacía (pasa cuando FM está cargando o renovando contratos), se usa la
+// última ficha guardada de cada jugador de esta temporada, sin los que se han ido de verdad
+function plantillaDeRespaldo(temporada) {
+  const ultimo = {};
+  for (const t of D.traspasos) if (t.iu && (!ultimo[t.iu] || t.fecha >= ultimo[t.iu].fecha)) ultimo[t.iu] = t;
+  const vistos = new Set(), out = [];
+  for (const f of [...(D.plantillas || [])].reverse()) {
+    if (f.temporada !== temporada || vistos.has(f.iu)) continue;
+    vistos.add(f.iu);
+    const u = ultimo[f.iu];
+    if (u && !u.entra && !u.cesion && u.tipo !== 'cantera') continue;
+    out.push({iu: f.iu, nombre: f.nombre, posicion: f.pos || '', fecha_nacimiento: isoDe(f.nacimiento), altura_cm: f.altura, peso_kg: f.peso,
+              sueldo_mes_eur: f.sueldo, fin_contrato: isoDe(f.contrato), atributos: f.atributos, cedido_a: f.cedido_a, respaldo: true});
+  }
+  return out.reverse();
+}
+// lo mismo con las estadísticas de la temporada: la última captura de cada jugador y competición
+function estadisticasDeRespaldo(temporada) {
+  const ult = {};
+  for (const r of D.por_temporada || []) {
+    if (r.temporada !== temporada) continue;
+    const k = r.iu + '|' + r.tipo;
+    if (!ult[k] || r.captura_id > ult[k].captura_id) ult[k] = r;
+  }
+  return Object.values(ult);
 }
 
 function preparar() {
   const club = D.club.nombre;
   IDX.club = club;
+  const caps = D.capturas.filter(c => c.origen === 'memoria' && c.fecha_juego);
+  IDX.fechaJuego = caps.length ? caps[caps.length - 1].fecha_juego : null;
+  // un «traspaso» al propio club no lo es: sale cuando una lectura no ve a alguien que sigue en la plantilla
+  // (o al renovar o subir de categoría a alguien); tampoco cuentan los que no tienen jugador
+  const antes = D.traspasos.length;
+  D.traspasos = D.traspasos.filter(t => (t.jugador || t.iu) && t.otro_club !== club);
+  IDX.falsos = antes - D.traspasos.length;
   // Partidos desde el punto de vista del club
   const detalle = {};
   for (const d of D.detalle_partidos || []) detalle[d.fecha] = d;
@@ -66,6 +124,10 @@ function preparar() {
     IDX.golesPorPartido[p.clave] = gs.filter(g => n[g.lado]++ < max[g.lado]);
   }
   IDX.temporadas = [...new Set(IDX.partidos.map(p => p.temporada))].sort();
+  IDX.temporadaActual = caps.length ? caps[caps.length - 1].temporada : IDX.temporadas[IDX.temporadas.length - 1];
+  IDX.respaldo = [];
+  if (!D.plantilla.length && (D.plantillas || []).length) { D.plantilla = plantillaDeRespaldo(IDX.temporadaActual); if (D.plantilla.length) IDX.respaldo.push('la plantilla'); }
+  if (!D.estadisticas.length && (D.por_temporada || []).length) { D.estadisticas = estadisticasDeRespaldo(IDX.temporadaActual); if (D.estadisticas.length) IDX.respaldo.push('las estadísticas'); }
   // alineaciones del calendario exportado (si se exportó con la columna de jugadores)
   IDX.alin = {};
   for (const a of D.alineaciones || []) (IDX.alin[a.fecha] ||= []).push(a);
@@ -87,10 +149,28 @@ function preparar() {
   for (const p of D.plantilla) if (p.posicion) IDX.export[p.iu] = {...(IDX.export[p.iu] || {}), posicion: p.posicion};
   IDX.evol = {};
   for (const e of D.evolucion || []) (IDX.evol[e.iu] ||= []).push(e);
-  const caps = D.capturas.filter(c => c.origen === 'memoria' && c.fecha_juego);
-  IDX.fechaJuego = caps.length ? caps[caps.length - 1].fecha_juego : null;
-  IDX.temporadaActual = caps.length ? caps[caps.length - 1].temporada : IDX.temporadas[IDX.temporadas.length - 1];
 }
+
+// Aviso cuando se enseña la plantilla o las estadísticas guardadas porque la última lectura vino vacía
+const avisoRespaldo = () => IDX.respaldo.length ? `<div class="wrap"><p class="aviso">La última lectura del juego no trajo ${IDX.respaldo.join(' ni ')} de la temporada: se enseña lo último guardado de ${esc(IDX.temporadaActual)}. Se corrige sola en cuanto FM Hub vuelva a leer el juego con la partida cargada.</p></div>` : '';
+
+// Versión de los datos: v<temporada de la partida>.<jornada de liga>.<lectura desde esa jornada>
+// (la 6.ª temporada, tras la jornada 15 y con 3 lecturas desde ese partido: v6.15.3)
+function versiones() {
+  const ss = HIST.S(), out = {};
+  const nT = t => ss.findIndex(s => s.t === t) + 1;
+  for (const c of D.capturas) {
+    if (c.origen !== 'memoria' || !c.fecha_juego || !c.temporada) continue;
+    const s = ss.find(x => x.t === c.temporada);
+    const j = s ? s.lgPs.filter(p => p.fecha <= c.fecha_juego).length : 0;
+    const k = `v${nT(c.temporada) || '?'}.${j}`;
+    const v = (out[k] ||= {k, temporada: c.temporada, j, n: 0, fj: c.fecha_juego, desde: c.fecha_real, hasta: c.fecha_real});
+    v.n++; if (c.fecha_real > v.hasta) v.hasta = c.fecha_real; if (c.fecha_real < v.desde) v.desde = c.fecha_real; if (c.fecha_juego > v.fj) v.fj = c.fecha_juego;
+  }
+  return Object.values(out).sort((a, b) => b.hasta.localeCompare(a.hasta));
+}
+const versionActual = () => { const v = versiones()[0]; return v ? `${v.k}.${v.n}` : ''; };
+const haceCuanto = f => { const m = (Date.now() - new Date(f)) / 60000; return !isFinite(m) ? '' : m < 2 ? 'ahora mismo' : m < 60 ? `hace ${Math.round(m)} min` : m < 48 * 60 ? `hace ${Math.round(m / 60)} h` : `hace ${Math.round(m / 1440)} días`; };
 
 const jug = (iu, nombre) => iu ? `<a class="j" href="#jugador/${iu}">${esc(nombre || IDX.nombres[iu] || iu)}</a>` : esc(nombre || '');
 const pillRes = p => `<span class="res ${p.res}">${p.gf}-${p.gc}</span>`;
@@ -131,13 +211,15 @@ function tabla(id, cols, filas, orden) {
   const tb = filas.map(f => `<tr class="${f._cls || ''}">` + cols.map(c => `<td class="${c.n ? 'n' : ''} ${c.cls || ''}">${c.h ? c.h(f) : esc(f[c.k] ?? '')}</td>`).join('') + '</tr>').join('');
   return `<div class="tw"><table><thead><tr>${th}</tr></thead><tbody>${tb || `<tr><td class="vacio" colspan="${cols.length}">Sin datos</td></tr>`}</tbody></table></div>`;
 }
-tabla.estado = {};
+// el orden elegido en cada tabla se recuerda en este navegador
+tabla.estado = leer('fmhub-orden', {}) || {};
 document.addEventListener('click', ev => {
   const th = ev.target.closest('th[data-t]');
   if (!th) return;
   const st = tabla.estado[th.dataset.t];
   st.d = st.k === th.dataset.k ? -st.d : -1;
   st.k = th.dataset.k;
+  apuntar('fmhub-orden', tabla.estado);
   pintar();
 });
 
@@ -147,13 +229,15 @@ function cabecera() {
   const v = of.filter(p => p.res === 'W').length, e = of.filter(p => p.res === 'D').length, d = of.filter(p => p.res === 'L').length;
   const lect = D.fuentes?.ultima_lectura, hace = lect ? (Date.now() - new Date(lect)) / 60000 : Infinity;
   const viva = !window.FMHUB_ESTATICO && !window.FMHUB_PUBLICADO && hace < 5;
-  $('#eyebrow').innerHTML = `<i class="dot ${viva ? 'on' : ''}" title="${viva ? 'FM Hub está leyendo el juego' : 'Sin lecturas recientes del juego'}"></i>FM Hub · ${esc(IDX.temporadaActual || '')}${IDX.fechaJuego ? ' · ' + esc(fecha(IDX.fechaJuego)) : ''}`;
+  const ver = versionActual();
+  const selPartida = PARTIDA.lista.length > 1 ? ` · <select id="partida" class="sel-partida" aria-label="Partida">${PARTIDA.lista.map(p => `<option value="${esc(p.id)}" ${p.id === PARTIDA.id ? 'selected' : ''}>${esc(p.nombre || p.id)}</option>`).join('')}</select>` : '';
+  $('#eyebrow').innerHTML = `<i class="dot ${viva ? 'on' : ''}" title="${viva ? 'FM Hub está leyendo el juego' : 'Sin lecturas recientes del juego'}"></i>FM Hub${ver ? ` <span class="ver" title="temporada de la partida · jornada de liga · lectura desde esa jornada">${esc(ver)}</span>` : ''} · ${esc(IDX.temporadaActual || '')}${IDX.fechaJuego ? ' · ' + esc(fecha(IDX.fechaJuego)) : ''}${selPartida}`;
   $('#titulo').innerHTML = `${esc(IDX.club)} <em>de Varela</em>`;
-  $('#lead').textContent = `${HIST.entradilla()} ${window.FMHUB_ESTATICO ? 'Copia autocontenida generada el ' + fecha(D.generado.slice(0, 10)) + '.' : 'Actualizado: ' + D.generado.replace('T', ' ').slice(0, 16) + '.'}`;
+  $('#lead').textContent = `${HIST.entradilla()} ${window.FMHUB_ESTATICO ? 'Copia autocontenida generada el ' + fecha(D.generado.slice(0, 10)) + '.' : 'Actualizado: ' + D.generado.replace('T', ' ').slice(0, 16) + ' (' + haceCuanto(D.generado) + ').'}`;
   const gf = of.reduce((s, p) => s + p.gf, 0), gc = of.reduce((s, p) => s + p.gc, 0);
   $('#bigs').innerHTML = HIST.bigsPalmares(of);
   $('#ladder').innerHTML = HIST.escalera();
-  $('#pie').innerHTML = HIST.notas() + `<p class="mini">FM Hub · solo lectura: no modifica el juego ni la partida · ${esc(D.generado.replace('T', ' ').slice(0, 16))}</p>`;
+  $('#pie').innerHTML = HIST.notas() + `<p class="mini">FM Hub ${esc(ver)} · solo lectura: no modifica el juego ni la partida · ${esc(D.generado.replace('T', ' ').slice(0, 16))}</p>`;
   if (!cabecera.hecha) { cabecera.hecha = true; contar(); }
 }
 
@@ -187,15 +271,24 @@ V.inicio = () => {
     <div class="cols2" style="margin-top:18px">
       <div class="card"><h4 style="margin-top:0">Novedades</h4>
         <div class="filters"><button class="chip" data-nm="1" aria-pressed="${!!V.inicio.moral}">Cambios de moral</button></div>
-        ${nov.length ? `<ul class="feed">${nov.slice(0, 24).map(n => `<li><time>${esc(n.cuando)}</time><span class="tag ${n.cls}">${n.tag}</span><span>${n.t}</span></li>`).join('')}</ul>` : '<p class="vacio">Sin cambios recientes.</p>'}</div>
+        ${nov.length ? `<ul class="feed">${nov.slice(0, V.inicio.todas ? nov.length : 24).map(n => `<li><time>${esc(n.cuando)}</time><span class="tag ${n.cls}">${n.tag}</span><span>${n.t}</span></li>`).join('')}</ul>${nov.length > 24 ? `<div class="fila-btn"><button class="chip" data-ntodas="1">${V.inicio.todas ? 'Ver solo las 24 últimas' : `Ver las ${nov.length}`}</button></div>` : ''}` : '<p class="vacio">Sin cambios recientes.</p>'}</div>
       <div class="card"><h4 style="margin-top:0">Últimos partidos</h4>${proxHtml}${ult.map(p => `<div class="tri"><span class="d">${fecha(p.fecha)}</span><span><span class="ha">${p.casa ? 'C' : 'F'}</span>${esc(p.rival)} <span class="mini">${esc(p.competicion || '')}</span></span>${pillRes(p)}</div>`).join('')}
         <h4>Últimos traspasos</h4>${tras.map(t => `<div class="tri"><span class="d">${fecha(t.fecha)}</span><span class="${t.entra ? 'in' : 'out'}">${t.entra ? '↘' : '↗'} ${jug(t.iu, t.jugador)} <span class="mini">${esc(t.otro_club || 'libre')}</span></span><span class="f">${t.cesion ? 'cesión' : eur(t.precio_eur)}</span></div>`).join('')}</div>
     </div>
-    <div class="cols2" style="margin-top:14px">${qr}${HIST.exportacion()}
-      ${D.registro ? `<div class="card"><h4 style="margin-top:0">Estado de FM Hub</h4>${fuentesHtml()}<pre class="registro">${esc(D.registro.join('\n')) || 'Sin registro.'}</pre></div>` : ''}
-    </div>
+    <div class="cols2" style="margin-top:14px">${qr}${HIST.exportacion()}${estadoHtml()}</div>
   </div></section>`;
 };
+
+// Estado de FM Hub: lo último arriba. Versiones (temporada.jornada) con sus lecturas y el registro del programa
+function estadoHtml() {
+  const vs = versiones();
+  const lista = vs.slice(0, V.inicio.versiones ? vs.length : 6).map((v, i) => `<div class="tri"><span class="d mono">${esc(v.k)}.${v.n}</span><span>${v.j ? `tras la jornada ${v.j}` : 'pretemporada'} de ${esc(v.temporada)} · ${fecha(v.fj)}${i === 0 ? ' <span class="pill">actual</span>' : ''}</span><span class="f">${v.n} ${v.n === 1 ? 'lectura' : 'lecturas'} · ${esc(cuando(v.hasta))}</span></div>`).join('');
+  // el registro llega en orden de escritura (lo más antiguo primero): se le da la vuelta
+  const reg = D.registro?.length ? `<h4>Registro</h4><pre class="registro">${esc([...D.registro].reverse().join('\n'))}</pre>` : '';
+  return `<div class="card"><h4 style="margin-top:0">Estado de FM Hub</h4>${fuentesHtml()}
+    ${vs.length ? `<h4>Versiones de los datos</h4><p class="mini">v<b>temporada de la partida</b>.<b>jornada de liga</b>.<b>lectura</b> desde esa jornada. La más reciente arriba.</p>${lista}${vs.length > 6 ? `<div class="fila-btn"><button class="chip" data-nver="1">${V.inicio.versiones ? 'Ver menos' : `Ver las ${vs.length}`}</button></div>` : ''}` : ''}
+    ${reg}</div>`;
+}
 
 // Novedades al estilo de tracker.html: llegadas y salidas, goles, mejoras y bajadas de atributos, sueldo,
 // contrato y moral. Lo de la partida lleva su fecha de juego; el resto, la fecha en que FM Hub lo leyó.
@@ -223,7 +316,7 @@ function novedades() {
   for (const [f, ts] of Object.entries(promo).slice(-2)) out.push({f, juego: true, tag: 'Cantera', cls: 'g',
     t: `${ts.length} canteranos suben del filial: ${ts.map(t => jug(t.iu, t.jugador)).join(', ')}`});
   for (const t of IDX.traspasos.slice(-12)) out.push({f: t.fecha, juego: true, tag: t.entra ? 'Llegada' : 'Salida', cls: t.entra ? 'g' : 'r',
-    t: t.origen === 'plantilla' ? `${jug(t.iu, t.jugador)} ${t.entra ? 'llega a la plantilla' : t.otro_club ? 'se va al ' + esc(t.otro_club) + (t.cesion ? ' (cesión)' : '') : 'deja la plantilla'}` : `${jug(t.iu, t.jugador)} ${t.entra ? 'llega del' : 'se va al'} ${esc(t.otro_club || 'mercado libre')}${t.cesion ? ' (cesión)' : t.precio_eur ? ' por ' + eur(t.precio_eur) : ''}`});
+    t: t.origen === 'plantilla' ? `${jug(t.iu, t.jugador)} ${t.entra ? 'llega a la plantilla' : t.otro_club ? 'se va al ' + esc(t.otro_club) + (t.cesion ? ' (cesión)' : t.precio_eur ? ' por ' + eur(t.precio_eur) : '') : 'deja la plantilla'}` :`${jug(t.iu, t.jugador)} ${t.entra ? 'llega del' : 'se va al'} ${esc(t.otro_club || 'mercado libre')}${t.cesion ? ' (cesión)' : t.precio_eur ? ' por ' + eur(t.precio_eur) : ''}`});
   for (const n of out) n.cuando = n.juego ? fecha(n.f.slice(0, 10)) : cuando(n.f);
   // primero lo leído más recientemente; lo de la partida va junto a la última lectura, en orden de fecha de juego
   const ult = D.capturas.reduce((m, c) => c.fecha_real > m ? c.fecha_real : m, '');
@@ -323,7 +416,7 @@ V.partidos = () => {
       <span><b>${of.reduce((s, p) => s + p.gf, 0)}</b>–<b>${of.reduce((s, p) => s + p.gc, 0)}</b> goles</span></p>
     ${tabla('partidos', [
       {k: 'fecha', t: 'Fecha', h: p => fecha(p.fecha)}, {k: 'competicion', t: 'Competición', cls: 'cmp'},
-      {k: 'rival', t: 'Rival', h: p => `<span class="ha">${p.casa ? 'C' : 'F'}</span>${esc(p.rival)}`},
+      {k: 'rival', t: 'Rival', h: p => `<span class="ha">${p.casa ? 'C' : 'F'}</span><a class="j" href="#rivales/${encodeURIComponent(p.rival)}">${esc(p.rival)}</a>`},
       {k: 'res', t: 'Res.', h: p => pillRes(p) + esc(p.pen)},
       {k: 'espectadores', t: 'Público', n: 1, h: p => num(p.espectadores)},
       {k: 'gol', t: 'Goleadores', cls: 'sc', h: golesTexto},
@@ -344,8 +437,12 @@ V.traspasos = () => {
   const lista = porT[sel] || [];
   const gasto = e => lista.filter(t => !!t.entra === e && !t.cesion).reduce((s, t) => s + (t.precio_eur || 0), 0);
   const pl = (n, uno, varios = uno + 's') => `${n} ${n === 1 ? uno : varios}`;
+  // los que FM Hub detecta porque aparecen o desaparecen de la plantilla: la fecha es la de la lectura en que se
+  // notó; se da la horquilla desde la lectura anterior (entre esas dos fechas de juego se cerró)
+  const fechasJuego = [...new Set(D.capturas.map(c => c.fecha_juego).filter(Boolean))].sort();
+  const desdeLectura = f => fechasJuego.filter(x => x < f).pop();
   const fila = t => t.origen === 'plantilla'
-    ? `<div class="tri"><span class="d">≈ ${fecha(t.fecha)}</span><span><b>${jug(t.iu, t.jugador)}</b> <span style="color:var(--mut)">${t.otro_club ? esc(t.otro_club) + (t.cesion ? ' (cesión)' : '') : t.entra ? 'llega a la plantilla' : 'deja la plantilla (buscando su nuevo club)'}</span></span><span class="f">${t.cesion ? 'cesión' : 'sin precio'}</span></div>`
+    ? `<div class="tri"><span class="d">≈ ${fecha(t.fecha)}</span><span><b>${jug(t.iu, t.jugador)}</b> <span style="color:var(--mut)">${t.otro_club ? esc(t.otro_club) + (t.cesion ? ' (cesión)' : '') : t.entra ? 'llega a la plantilla' : 'deja la plantilla (buscando su nuevo club)'}</span>${desdeLectura(t.fecha) ? `<br><span class="mini">entre el ${fecha(desdeLectura(t.fecha))} y el ${fecha(t.fecha)}</span>` : ''}</span><span class="f">${t.cesion ? 'cesión' : t.precio_eur ? eur(t.precio_eur) : 'sin precio'}</span></div>`
     : `<div class="tri"><span class="d">${fecha(t.fecha)}</span><span><b>${jug(t.iu, t.jugador)}</b> <span style="color:var(--mut)">${esc(t.otro_club || 'agente libre')}${t.origen === 'varela.html' ? ' · de varela.html' : ''}</span></span><span class="f">${t.cesion ? 'cesión' : t.precio_eur ? eur(t.precio_eur) : 'libre'}</span></div>`;
   const col = (titulo, cls, arr) => `<div class="card"><h4 style="margin-top:0" class="${cls}">${titulo} · ${arr.length}</h4>${arr.map(fila).join('') || '<p class="vacio">Ninguno.</p>'}</div>`;
   const entra = lista.filter(t => t.entra), sale = lista.filter(t => !t.entra);
@@ -354,6 +451,7 @@ V.traspasos = () => {
     <p class="sub">Historial de traspasos por temporada, como en FM (sin cuerpo técnico). Importes en euros como en pantalla («75 mil €» son 75.000 €). Las promociones de la cantera no son fichajes y van aparte. Los marcados «de varela.html» ya no están en la memoria de FM.</p>
     <div class="tabs">${temps.map(t => `<button class="tab" data-trt="${t}" aria-selected="${t === sel}">${t}<small>${(k => k === 1 ? '1 fichaje' : k + ' fichajes')((porT[t] || []).filter(x => x.entra && !x.cesion).length)}</small></button>`).join('')}</div>
     <div class="tr2"><div class="card" style="grid-column:1/-1"><b>${esc(resumen)}</b></div>${col('Llegadas', 'in', entra)}${col('Salidas', 'out', sale)}</div>
+    ${IDX.falsos ? `<p class="mini">Se ignoran ${IDX.falsos} ${IDX.falsos === 1 ? 'movimiento' : 'movimientos'} que no son fichajes: «salidas» al propio ${esc(IDX.club)} (jugadores que siguen aquí y que una lectura no vio, o renovaciones) y altas sin jugador.</p>` : ''}
     ${cant[sel] ? `<details class="cant" style="margin-top:12px"><summary>Promoción de la cantera: ${cant[sel].length} juveniles suben al primer equipo (${fecha(cant[sel][0].fecha)})</summary><p>${cant[sel].map(x => jug(x.iu, x.jugador)).join(' · ')}</p></details>` : ''}
     ${HIST.rentabilidad()}
   </div></section>`;
@@ -482,6 +580,7 @@ V.jugador = iu => {
     <div class="ficha-cab"><h2>${esc(nombre)}</h2>${p ? '<span class="pill">en la plantilla</span>' : '<span class="pill">exjugador</span>'}</div>
     <div class="meta" style="margin-top:10px">${meta.map(([k, v]) => `<span>${k}: <b>${esc(v)}</b></span>`).join('')}</div>
     ${HIST.trayectoria(iu)}
+    ${HIST.records(iu)}
     <h4>Atributos</h4>${atr}
     ${hist.length > 1 || (IDX.evol[iu] || []).length > 1 ? `<div class="cols2"><div class="card"><h4 style="margin-top:0">Suma de atributos en el tiempo</h4>${mini(hist.filter(h => Object.values(h.v).filter(x => x > 1).length >= 20).map(h => sumaAtr(h.v)))}<p class="mini">${hist.length} capturas con cambios.</p></div>
       <div class="card"><h4 style="margin-top:0">Nota media en las exportaciones</h4>${mini((IDX.evol[iu] || []).filter(e => e.nota_media).map(e => e.nota_media), v => Number(v).toFixed(2))}<p class="mini">Nota media de la temporada en cada exportación de plantilla (vuelve a empezar cada temporada).</p></div></div>` : ''}
@@ -572,7 +671,7 @@ function pintar() {
   const activo = document.querySelector('#menu a[aria-current=page]');
   if (activo && activo.parentElement.scrollWidth > activo.parentElement.clientWidth) activo.parentElement.scrollTo({left: activo.offsetLeft - activo.parentElement.clientWidth / 2 + activo.offsetWidth / 2, behavior: 'smooth'});
   const foco = document.activeElement?.id, pos = document.activeElement?.selectionStart;
-  $('#vista').innerHTML = V[vista](arg);
+  $('#vista').innerHTML = (['inicio', 'plantilla', 'progreso', 'plan', 'tactica'].includes(vista) ? avisoRespaldo() : '') + V[vista](arg);
   if (vista === 'inicio' && !window.FMHUB_ESTATICO && !window.FMHUB_PUBLICADO) fetch('api/url').then(r => r.json()).then(u => { const e = $('#url'); if (e) e.textContent = u.url; }).catch(() => {});
   if (foco) { const e = document.getElementById(foco); if (e) { e.focus(); try { e.setSelectionRange(pos, pos); } catch (er) {} } }
   aparecer($('#vista'));
@@ -585,6 +684,8 @@ document.addEventListener('click', ev => {
   const ds = b.dataset;
   if (ds.pf) V.plantilla.filtro = ds.pf;
   else if (ds.nm) V.inicio.moral = !V.inicio.moral;
+  else if (ds.ntodas) V.inicio.todas = !V.inicio.todas;
+  else if (ds.nver) V.inicio.versiones = !V.inicio.versiones;
   else if (ds.pt) { V.partidos.t = ds.pt; V.partidos.c = null; }
   else if (ds.pa) V.partidos.amis = !V.partidos.amis;
   else if (ds.trt) V.traspasos.t = ds.trt;
@@ -603,10 +704,24 @@ document.addEventListener('input', ev => {
   if (ev.target.id === 'buscar') { V.plantilla.q = ev.target.value; pintar(); }
   if (ev.target.id === 'buscarH') { V.historial.q = ev.target.value; pintar(); }
 });
+// cambiar de partida: se recuerda en este navegador y se vuelve a cargar todo con sus datos
+document.addEventListener('change', ev => {
+  if (ev.target.id !== 'partida') return;
+  apuntar('fmhub-partida', ev.target.value);
+  const u = new URL(location.href); u.searchParams.delete('partida');
+  location.href = u.toString();
+});
+// atajos: «/» busca en la sección (si tiene buscador) y Escape vacía el buscador
+document.addEventListener('keydown', ev => {
+  const campo = document.querySelector('#vista input.search');
+  if (ev.key === '/' && campo && !ev.target.matches('input,select,textarea')) { ev.preventDefault(); campo.focus(); campo.select(); }
+  else if (ev.key === 'Escape' && ev.target === campo && campo.value) { campo.value = ''; campo.dispatchEvent(new Event('input', {bubbles: true})); }
+});
 window.addEventListener('hashchange', () => { pintar(); window.scrollTo(0, document.querySelector('nav.top').offsetTop); });
 
 (async () => {
   try {
+    await cargarPartidas();
     D = await cargar();
     preparar();
     cabecera();
