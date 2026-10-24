@@ -425,8 +425,11 @@ const TAC = (() => {
       .sort((a, b) => (b.titular || 0) - (a.titular || 0) || (b.minutos || 0) - (a.minutos || 0));
     const filaJ = f => {
       const code = puestoDe(fu, f.iu, f.titular), s = code && slotDe(code), dj = dondeJugo(fu, f.iu) || {};
-      const como = dj.fuente === 'heredada' ? `entró en el ${dj.entra}' por ${esc(nombre(dj.sustituye_a))}` : dj.fuente || (code ? 'tu once' : '');
-      const donde = code ? `${s?.rol ? esc(s.rol) : corto(code)} <small>(${como})</small>` : f.titular ? 'Titular, sin puesto conocido' : 'Entró desde el banquillo';
+      const como = dj.fuente === 'heredada' ? `entró en el ${dj.entra}' por ${esc(nombre(dj.sustituye_a))}` : dj.fuente === 'FM' ? 'según FM' : dj.fuente || (code ? 'tu once' : '');
+      // con el once leído de FM: su rol y deber reales y el lado en los puestos repetidos
+      const real = dj.rol && (dj.fuente === 'FM' || dj.fuente === 'heredada') && /·/.test(dj.rol);
+      const etiqueta = real ? `${esc(dj.rol)} · ${corto(code)}${dj.lado ? (dj.lado === 'I' ? ' izq.' : ' der.') : ''}` : s?.rol ? esc(s.rol) : corto(code);
+      const donde = code ? `${etiqueta} <small>(${como})</small>` : f.titular ? 'Titular, sin puesto conocido' : 'Entró desde el banquillo';
       // cuánto le mueve este partido en el puesto donde jugó (si es una de tus opciones de ese puesto)
       const o = code && s?.opciones.find(x => x.iu === f.iu);
       let efecto = code ? '<small>no es opción de ese puesto en tu táctica</small>' : '<small>no se sabe dónde jugó: cuenta a medias en sus puestos</small>';
@@ -446,7 +449,7 @@ const TAC = (() => {
       <h4>${titulo}</h4>
       <p class="sub" style="margin:0 0 8px">Dónde jugó cada uno y cuánto le mueve el partido en ese puesto. Lo que hace en un puesto cuenta entero solo para ese puesto (a medias si no se sabe dónde jugó y un cuarto para sus otros puestos), así que un partidazo de extremo no le pone primero de delantero. Tu orden no se toca.</p>
       ${jugaron.length ? `<div class="tw"><table class="tvis"><thead><tr><th>Jugador</th><th>Dónde jugó</th><th class="n">Min</th><th class="n">Nota</th><th>Efecto en ese puesto</th></tr></thead><tbody>${jugaron.map(filaJ).join('')}</tbody></table></div>` : ''}
-      <p class="mini" style="margin:6px 0 0">«Dónde jugó» lo calcula FM Hub: los titulares, por tu once guardado ese día (o el hueco de tu táctica que mejor les encaja) y los suplentes heredan el puesto del jugador por el que entran (se sabe por los minutos). Si cambias el once en FM, cámbialo también aquí para que cuadre.</p>
+      <p class="mini" style="margin:6px 0 0">«Dónde jugó»: los titulares, por el once que FM Hub leyó del juego antes del partido (puesto, rol y deber reales: «según FM»); si no lo tiene, por tu once guardado aquí o el hueco de tu táctica que mejor les encaja. Los suplentes heredan el puesto del jugador por el que entran (se sabe por los minutos).</p>
 `;
   }
 
