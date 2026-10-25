@@ -155,7 +155,12 @@ const TAC = (() => {
   function estrellasAuto(iu, code, R, ref) {
     const c = estrellasAuto.c?.d === D ? estrellasAuto.c : (estrellasAuto.c = {d: D, plantilla: {}});
     if (!c.plantilla[code]) {
-      const v = D.plantilla.filter(p => !p.cedido_a).map(p => notaAtributos(p.iu, code)).filter(x => x !== null).sort((a, b) => a - b);
+      // frente a los que juegan ese puesto en la plantilla (natural o uno cercano; de portero, solo los porteros): frente a
+      // todos, cualquier portero sale de 5 estrellas (los de campo tienen atributos de portero muy bajos)
+      const juegan = c => code === 'POR' ? posDe(c).has('POR') : !posDe(c).has('POR') && (posDe(c).has(code) || (CERCA[code] || []).some(x => posDe(c).has(x)));
+      let quienes = D.plantilla.filter(p => !p.cedido_a && juegan(p.iu));
+      if (quienes.length < 3 && code !== 'POR') quienes = D.plantilla.filter(p => !p.cedido_a && !posDe(p.iu).has('POR'));
+      const v = quienes.map(p => notaAtributos(p.iu, code)).filter(x => x !== null).sort((a, b) => a - b);
       const med = v.length ? v[Math.floor(v.length / 2)] : null, m = v.reduce((a, b) => a + b, 0) / (v.length || 1);
       c.plantilla[code] = {med, sd: Math.max(1, Math.sqrt(v.reduce((a, b) => a + (b - m) ** 2, 0) / (v.length || 1)))};
     }
@@ -223,11 +228,11 @@ const TAC = (() => {
     // más juegue aquí: 1 partido, un cuarto de su media; 3, la mitad; 9, tres cuartos (un partido no lo decide todo)
     const ep = enPuesto(r, o.iu, code), ec = (r.carrera || {})[code], ev = evidencia(r, code);
     if (ev) media = media ? (media * K_PUESTO + ev.n * ev.pj) / (K_PUESTO + ev.pj) : ev.n;
-    // sin tus estrellas: las que le pone FM Hub en este puesto (atributos para el puesto frente a la plantilla y lo que ha
-    // rendido aquí); sin atributos, media estrella menos que la media de las que pusiste en ese puesto
+    // tus estrellas mandan. Sin ellas, si en este puesto has puesto estrellas a otros, es que no tiene nivel para el
+    // primer equipo (o solo de cantera): la mínima. Si no has puesto a nadie, 2 (neutro). Las de FM Hub solo se enseñan
     const auto = estrellasAuto(o.iu, code, R, ref);
     const puestas = t.slots.filter(x => x.code === code).flatMap(x => x.opciones).map(x => x.estrellas).filter(Boolean);
-    const calidad = o.estrellas || auto?.est || (puestas.length ? Math.max(1, puestas.reduce((a, b) => a + b, 0) / puestas.length - .5) : 2);
+    const calidad = o.estrellas || (puestas.length ? 1 : 2);
     // con pocos minutos la media dice poco: pesa según los minutos jugados (con ~900, unos 10 partidos, ya pesa la mitad)
     const minutos = (r.minA || 0) + .6 * (r.minP || 0), peso = minutos / (minutos + 900);
     const rend = media ? (media - ref.mNota) * 4 * peso : 0;
@@ -355,11 +360,11 @@ const TAC = (() => {
     cargarTactica();
     const R = rendimiento();
     const nombre = iu => (D.plantilla.find(p => p.iu === iu) || {}).nombre || IDX.nombres[iu] || '¿?';
-    const pos = FORMACIONES[t.formacion], refCampo = referencias(R);
+    const pos = FORMACIONES[t.formacion];
     const campo = t.slots.map((s, i) => {
       const o = s.opciones[0], [, x, y] = pos[i] || ['', 50, 50];
       return `<button type="button" class="slot${i === sel ? ' sel' : ''}${o ? '' : ' vacio'}" data-tslot="${i}" style="left:${x}%;top:${y}%">
-        <b>${s.rol ? esc(s.rol) : corto(s.code)}</b><span title="${o ? esc(nombre(o.iu)) : ''}">${o ? esc(nombre(o.iu).split(' ').slice(1).join(' ') || nombre(o.iu)) : 'Sin nadie'}</span><small>${o ? (o.estrellas ? verEst(o.estrellas) : (au => au ? `${verEst(au.est)} <i title="Estrellas de FM Hub para este puesto (no le has puesto)">auto</i>` : 'sin ★')(estrellasAuto(o.iu, s.code, R, refCampo))) : ''}${s.opciones.length > 1 ? ` · +${s.opciones.length - 1}` : ''}</small></button>`;
+        <b>${s.rol ? esc(s.rol) : corto(s.code)}</b><span title="${o ? esc(nombre(o.iu)) : ''}">${o ? esc(nombre(o.iu).split(' ').slice(1).join(' ') || nombre(o.iu)) : 'Sin nadie'}</span><small>${o ? (o.estrellas ? verEst(o.estrellas) : 'sin ★') : ''}${s.opciones.length > 1 ? ` · +${s.opciones.length - 1}` : ''}</small></button>`;
     }).join('');
     const s = t.slots[sel];
     const enSlot = new Set(s.opciones.map(o => o.iu));
@@ -372,7 +377,7 @@ const TAC = (() => {
     const filas = s.opciones.map((o, k) => {
       const r = R[o.iu] || {}, natural = posDe(o.iu).has(s.code), pr = prioridad(o, s.code, R, ref);
       const otro = titularEn[o.iu] !== undefined && titularEn[o.iu] !== sel ? ` · titular en ${corto(t.slots[titularEn[o.iu]].code)}` : '';
-      return `<div class="op"><span class="nro">${k === 0 ? 'Titular' : k + 1 + 'º'}</span><div class="opn">${jug(o.iu, nombre(o.iu))}<small>${natural ? '' : 'fuera de su puesto natural · '}${r.n ? `rinde ${d2(r.n)}` : 'sin partidos suficientes'}${r.pjA ? ` · ${r.pjA} partidos y ${miles(r.minA)} min esta temporada` : ''}${pr.fp ? ` · forma aquí ${d2(pr.fp.n)} (últ. ${r.nForma})` : ''}${pr.ep ? ` · aquí ${d2(pr.ep.n)} en ${pr.ep.pj} p.` : ''}${pr.ec ? ` · aquí antes ${d2(pr.ec.n)} en ${pr.ec.pj} p.` : ''}${pr.ev && !natural && pr.ev.pj <= 2 ? ` · ¡a probar aquí! ${d2(pr.ev.n)} en ${pr.ev.pj} p.` : ''}${pr.auto ? ` · <span title="Atributos para ${esc(PUESTOS[s.code] || s.code)}: ${d2(pr.auto.atributos)} sobre 20${pr.auto.ajuste ? ` · lo que rinde aquí: ${pr.auto.ajuste > 0 ? '+' : ''}${d2(pr.auto.ajuste)} estrellas` : ''}">FM Hub: ${verEst(pr.auto.est)}${pr.sinEst ? ' (las usa: no le has puesto)' : ''}</span>` : pr.sinEst ? ` · sin ★: cuenta como ${verEst(Math.round(pr.calidad * 2) / 2)}` : ''}${pr.media && pr.peso < .35 ? ' · pocos minutos: su media pesa poco' : ''}${otro} · <span title="Calidad ${d2(pr.calidad)} · peso de su media ${Math.round(pr.peso * 100)} % · rendimiento ${pr.rend >= 0 ? '+' : ''}${d2(pr.rend)} · puesto ${pr.encaje >= 0 ? '+' : ''}${d2(pr.encaje)}">prioridad ${d2(pr.total)}</span></small></div>
+      return `<div class="op"><span class="nro">${k === 0 ? 'Titular' : k + 1 + 'º'}</span><div class="opn">${jug(o.iu, nombre(o.iu))}<small>${natural ? '' : 'fuera de su puesto natural · '}${r.n ? `rinde ${d2(r.n)}` : 'sin partidos suficientes'}${r.pjA ? ` · ${r.pjA} partidos y ${miles(r.minA)} min esta temporada` : ''}${pr.fp ? ` · forma aquí ${d2(pr.fp.n)} (últ. ${r.nForma})` : ''}${pr.ep ? ` · aquí ${d2(pr.ep.n)} en ${pr.ep.pj} p.` : ''}${pr.ec ? ` · aquí antes ${d2(pr.ec.n)} en ${pr.ec.pj} p.` : ''}${pr.ev && !natural && pr.ev.pj <= 2 ? ` · ¡a probar aquí! ${d2(pr.ev.n)} en ${pr.ev.pj} p.` : ''}${pr.sinEst ? ` · sin ★: cuenta como ${verEst(pr.calidad)}${pr.calidad === 1 ? ' (sin nivel para el primer equipo)' : ''}` : ''}${pr.auto ? ` · <span title="Solo informativo: no se usa para la prioridad (mandan tus estrellas). Atributos para ${esc(PUESTOS[s.code] || s.code)}: ${d2(pr.auto.atributos)} sobre 20, frente a los que juegan este puesto en tu plantilla${pr.auto.ajuste ? ` · lo que rinde aquí: ${pr.auto.ajuste > 0 ? '+' : ''}${d2(pr.auto.ajuste)} estrellas` : ''}">FM Hub diría ${verEst(pr.auto.est)}</span>` : ''}${pr.media && pr.peso < .35 ? ' · pocos minutos: su media pesa poco' : ''}${otro} · <span title="Calidad ${d2(pr.calidad)} · peso de su media ${Math.round(pr.peso * 100)} % · rendimiento ${pr.rend >= 0 ? '+' : ''}${d2(pr.rend)} · puesto ${pr.encaje >= 0 ? '+' : ''}${d2(pr.encaje)}">prioridad ${d2(pr.total)}</span></small></div>
         ${estrellas(o.estrellas || 0, k)}<span class="opb"><button type="button" data-tup="${k}" aria-label="Subir" ${k ? '' : 'disabled'}>▲</button><button type="button" data-tdown="${k}" aria-label="Bajar" ${k < s.opciones.length - 1 ? '' : 'disabled'}>▼</button><button type="button" data-tdel="${k}" aria-label="Quitar">✕</button></span></div>`;
     }).join('');
     const editor = `<div class="card tac-ed"><div class="tac-edc"><h4 style="margin:0">${esc(PUESTOS[s.code] || s.code)}${s.rol ? ` · ${esc(s.rol)}` : ''}</h4>
@@ -720,7 +725,7 @@ const TAC = (() => {
   function estrellasHtml(iu) {
     const l = estrellasPorPuesto(iu).slice(0, 6);
     return l.length ? `<h4>Estrellas por puesto</h4><p class="meta">${l.map(x => `<span title="Atributos para el puesto: ${d2(x.a.atributos)} sobre 20${x.a.ajuste ? ` · lo que ha rendido ahí: ${x.a.ajuste > 0 ? '+' : ''}${d2(x.a.ajuste)}` : ''}">${corto(x.code)} <b>${verEst(x.a.est)}</b></span>`).join('')}</p>
-      <p class="mini">Las que le pone FM Hub en cada puesto: sus atributos de FM para lo que pide ese puesto, frente al resto de la plantilla, y lo que ha rendido de verdad ahí. En la táctica se usan donde no le has puesto estrellas.</p>` : '';
+      <p class="mini">Las que le pondría FM Hub en cada puesto: sus atributos de FM para lo que pide ese puesto, frente a los que juegan ese puesto en tu plantilla y frente a su mejor puesto, y lo que ha rendido de verdad ahí. Solo informativas: en la táctica mandan las tuyas.</p>` : '';
   }
   function porPuestoHtml(iu) {
     const l = porPuesto(iu);
@@ -748,5 +753,5 @@ const TAC = (() => {
         <td class="mini">${l.map(o => `${corto(o.code)} ${o.pj}${o.nota ? ' (' + d2(o.nota) + ')' : ''}`).join(' · ')}</td></tr>`).join('')}</tbody></table></div>`;
   }
 
-  return {vista, posiciones, porPuestoHtml, avisoUltimo, estrellasPorPuesto};
+  return {vista, posiciones, porPuestoHtml, avisoUltimo, estrellasPorPuesto, porPuesto, PUESTOS, corto};
 })();

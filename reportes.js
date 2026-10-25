@@ -15,7 +15,7 @@ const REP = (() => {
     hitos: 'historia.js → hitos(), mejorOnce(), totalesClub()', traspasos: 'app.js → V.traspasos, preparar() (filtro de traspasos) · historia.js → rentabilidad()',
     finanzas: 'app.js → V.finanzas · historia.js → economia()', plan: 'historia.js → plan(), renovaciones()',
     tactica: 'tactica.js → vista(), cambios(), consejos(), vistazo(), prioridad()', progreso: 'app.js → V.progreso, difsAtr()',
-    curiosidades: 'curiosidades.js → vistaCuriosidades()', jugador: 'app.js → V.jugador · historia.js → trayectoria(), records()',
+    curiosidades: 'curiosidades.js → vistaCuriosidades()', jugador: 'app.js → V.jugador · historia.js → trayectoria(), records()', comparar: 'app.js → V.comparar · tactica.js → estrellasPorPuesto(), porPuesto()',
   };
   // los issues van al repositorio con el código del programa (el de la web publicada solo recibe los datos)
   const REPO = 'https://github.com/gu3pard0/fmhubapp';

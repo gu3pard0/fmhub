@@ -616,6 +616,7 @@ V.jugador = iu => {
   return `<section><div class="wrap">
     <p class="volver"><a class="j" href="javascript:history.back()">← Volver</a></p>
     <div class="ficha-cab"><h2>${esc(nombre)}</h2>${p ? '<span class="pill">en la plantilla</span>' : '<span class="pill">exjugador</span>'}</div>
+    <p class="mini" style="margin:6px 0 0"><a class="j" href="#comparar/${iu}">Comparar con otro jugador →</a></p>
     <div class="meta" style="margin-top:10px">${meta.map(([k, v]) => `<span>${k}: <b>${esc(v)}</b></span>`).join('')}</div>
     ${HIST.trayectoria(iu)}
     ${HIST.records(iu)}
@@ -652,6 +653,79 @@ V.progreso = () => {
     <h4>Toda la plantilla</h4>${tabla('ptodos', cols, filas, {k: 'd', d: -1})}
   </div></section>`;
 };
+
+// ---------------------------------------------------------------- comparador de jugadores (#comparar/iu,iu,iu)
+V.comparar = arg => {
+  const ius = String(arg || '').split(',').map(Number).filter(Boolean).slice(0, 3);
+  while (ius.length < 2) ius.push(0);
+  const d2c = v => v === null || v === undefined || isNaN(v) ? '–' : Number(v).toFixed(2).replace('.', ',');
+  const enPlantilla = D.plantilla.map(p => p.iu);
+  const ex = Object.keys(IDX.nombres).map(Number).filter(iu => !enPlantilla.includes(iu)).sort((a, b) => (IDX.nombres[a] || '').localeCompare(IDX.nombres[b] || ''));
+  const opciones = sel => `<option value="">Elige un jugador…</option><optgroup label="Plantilla">${[...D.plantilla].sort((a, b) => a.nombre.localeCompare(b.nombre)).map(p => `<option value="${p.iu}" ${p.iu === sel ? 'selected' : ''}>${esc(p.nombre)}</option>`).join('')}</optgroup>
+    <optgroup label="Exjugadores">${ex.map(iu => `<option value="${iu}" ${iu === sel ? 'selected' : ''}>${esc(IDX.nombres[iu])}</option>`).join('')}</optgroup>`;
+  const selects = [...ius, ...(ius.length < 3 ? [0] : [])].map((iu, k) => `<label class="mini">Jugador ${k + 1} <select data-cmp="${k}">${opciones(iu)}</select></label>`).join('');
+  const js = ius.filter(Boolean);
+  const cab = `<section><div class="wrap"><h2 data-n="13">Comparar</h2>
+    <p class="sub">Dos o tres jugadores lado a lado: ficha, esta temporada, su etapa en el club, estrellas y rendimiento por puesto y atributos. En verde, el mejor de cada fila.</p>
+    <div class="filters cmp-sel">${selects}</div>`;
+  if (js.length < 2) return cab + '<p class="vacio">Elige al menos dos jugadores.</p></div></section>';
+  const datos = js.map(iu => {
+    const p = D.plantilla.find(x => x.iu === iu), x = IDX.export[iu] || {}, s = (IDX.stats[iu] || {}).total || {};
+    const temps = HIST.S().map(t => t.sq.find(q => q.iu === iu)).filter(q => q && q.pj);
+    const club = temps.reduce((o, q) => ({pj: o.pj + q.pj, g: o.g + q.g, a: o.a + q.a, min: o.min + (q.min || 0), sn: o.sn + (q.avg ? q.avg * q.pj : 0), nn: o.nn + (q.avg ? q.pj : 0)}), {pj: 0, g: 0, a: 0, min: 0, sn: 0, nn: 0});
+    const h = IDX.atr[iu] || [], atr = h.length ? h[h.length - 1].v : J(p?.atributos);
+    let est = [], pp = [];
+    try { est = TAC.estrellasPorPuesto(iu).slice(0, 4); pp = TAC.porPuesto(iu).filter(o => o.pj >= 3); } catch (e) {}
+    return {iu, p, x, s, temps, club, atr, est, pp, nombre: p?.nombre || IDX.nombres[iu] || 'Jugador'};
+  });
+  // fila de la tabla: valores de cada jugador; `mejor` = 1 (más es mejor), -1 (menos es mejor) o 0 (sin resaltar)
+  const fila = (t, vals, mejor = 1, fmt = v => v ?? '–') => {
+    const nums = vals.map(v => typeof v === 'number' && !isNaN(v) ? v : null), ok = nums.filter(v => v !== null);
+    const top = mejor && ok.length > 1 && new Set(ok).size > 1 ? (mejor > 0 ? Math.max(...ok) : Math.min(...ok)) : null;
+    return `<tr><th>${t}</th>${vals.map((v, k) => `<td class="n${top !== null && nums[k] === top ? ' cmp-mejor' : ''}">${fmt(v)}</td>`).join('')}</tr>`;
+  };
+  const tabla = (t, filas) => `<h4>${t}</h4><div class="tw"><table class="cmp"><thead><tr><th></th>${datos.map(d => `<th>${jug(d.iu, d.nombre)}</th>`).join('')}</tr></thead><tbody>${filas.join('')}</tbody></table></div>`;
+  const fichaT = tabla('Ficha', [
+    fila('Estado', datos.map(d => d.p ? (d.p.cedido_a ? 'Cedido' : 'En la plantilla') : 'Exjugador'), 0),
+    fila('Posición', datos.map(d => d.x.posicion || d.p?.posicion || '–'), 0),
+    fila('Edad', datos.map(d => d.p ? edad(d.p.fecha_nacimiento) : null), 0),
+    fila('Altura', datos.map(d => d.p?.altura_cm || null), 0, v => v ? v + ' cm' : '–'),
+    fila('Sueldo', datos.map(d => d.p?.sueldo_mes_eur ?? null), 0, v => v === null ? '–' : eur(v) + '/mes'),
+    fila('Contrato hasta', datos.map(d => d.p ? fecha(d.p.fin_contrato) : '–'), 0),
+    fila('Valor (pantalla)', datos.map(d => d.x.valor || '–'), 0)]);
+  const temporada = tabla(`Temporada ${esc(IDX.temporadaActual)}`, [
+    fila('Partidos', datos.map(d => d.s.partidos ?? null), 1, num), fila('Titular', datos.map(d => d.s.titular ?? null), 1, num),
+    fila('Minutos', datos.map(d => d.s.minutos ?? null), 1, num), fila('Goles', datos.map(d => d.s.goles ?? null), 1, num),
+    fila('Asistencias', datos.map(d => d.s.asistencias ?? null), 1, num), fila('Nota media', datos.map(d => d.s.nota_media ?? null), 1, d2c),
+    fila('Goles + asist. por 90 min', datos.map(d => d.s.minutos ? ((d.s.goles || 0) + (d.s.asistencias || 0)) * 90 / d.s.minutos : null), 1, d2c),
+    fila('Amarillas · rojas', datos.map(d => d.s.partidos ? `${d.s.amarillas || 0} · ${d.s.rojas || 0}` : '–'), 0)]);
+  const clubT = tabla(`En el ${esc(IDX.club)}`, [
+    fila('Temporadas', datos.map(d => d.temps.length), 1), fila('Partidos', datos.map(d => d.club.pj), 1, num),
+    fila('Goles', datos.map(d => d.club.g), 1, num), fila('Asistencias', datos.map(d => d.club.a), 1, num),
+    fila('Minutos', datos.map(d => d.club.min), 1, num), fila('Media ponderada', datos.map(d => d.club.nn ? d.club.sn / d.club.nn : null), 1, d2c)]);
+  const vEst = v => v ? '★'.repeat(Math.floor(v)) + (v % 1 ? '½' : '') : '—';
+  const puestos = [...new Set(datos.flatMap(d => [...d.est.map(e => e.code), ...d.pp.map(o => o.code)]))];
+  const puestoT = puestos.length ? tabla('Por puesto', puestos.flatMap(code => {
+    const nom = TAC.PUESTOS[code] || code;
+    return [fila(`${esc(nom)} · estrellas de FM Hub`, datos.map(d => d.est.find(e => e.code === code)?.a.est ?? null), 1, vEst),
+            fila(`${esc(nom)} · nota jugando ahí`, datos.map(d => d.pp.find(o => o.code === code)?.nota ?? null), 1, v => v === null ? '–' : d2c(v)),
+            fila(`${esc(nom)} · partidos ahí`, datos.map(d => d.pp.find(o => o.code === code)?.pj ?? null), 0, num)];
+  })) + '<p class="mini">Estrellas de FM Hub: las que le pondría en cada puesto por sus atributos y lo que ha rendido ahí (sus 4 mejores puestos). Nota y partidos: oficiales, 3 o más en ese puesto (con los partidos capturados de FM).</p>' : '';
+  const grupos = [['Técnicos', TECN], ['Mentales', MENT], ['Físicos', FIS], ['Portero', POR]];
+  const atrT = grupos.map(([t, ks]) => {
+    const filas = ks.filter(k => datos.some(d => d.atr?.[k] > 1)).map(k => fila(esc(NOMBRE_ATR[k] || k), datos.map(d => d.atr?.[k] > 1 ? d.atr[k] : null), 1));
+    if (!filas.length) return '';
+    const suma = fila(`<b>Suma ${t.toLowerCase()}</b>`, datos.map(d => { const v = ks.map(k => d.atr?.[k]).filter(x => x > 1); return v.length ? v.reduce((a, b) => a + b, 0) : null; }), 1);
+    return tabla(`Atributos ${t.toLowerCase()}`, [suma, ...filas]);
+  }).join('') || '<p class="vacio">Sin atributos guardados de estos jugadores (FM Hub solo los tiene de los de la plantilla).</p>';
+  return cab + fichaT + temporada + clubT + puestoT + atrT + '</div></section>';
+};
+document.addEventListener('change', ev => {
+  const s = ev.target.closest('select[data-cmp]');
+  if (!s) return;
+  const ius = [...document.querySelectorAll('select[data-cmp]')].map(x => +x.value).filter(Boolean);
+  location.hash = '#comparar/' + [...new Set(ius)].join(',');
+});
 
 V.curiosidades = () => vistaCuriosidades();
 V.viaje = () => HIST.viaje();
@@ -693,6 +767,7 @@ function cerrarFicha() { $('#modal').hidden = true; ficha.iu = null; document.bo
 document.addEventListener('click', ev => {
   const a = ev.target.closest('a.j[href^="#jugador/"]');
   if (a && location.hash.slice(1).split('/')[0] !== 'jugador') { ev.preventDefault(); ficha(a.getAttribute('href').split('/')[1]); return; }
+  if (ev.target.closest('#modal a[href^="#"]:not([href^="#jugador/"])')) cerrarFicha();   // ir a otra sección desde la ficha
   const o = ev.target.closest('[data-once]');
   if (o) { verOnce(o.dataset.once); return; }
   if (ev.target.id === 'modal' || ev.target.closest('#mX')) cerrarFicha();
