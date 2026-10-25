@@ -179,6 +179,30 @@ function preparar() {
   }
   for (const [f, m] of Object.entries(IDX.mvp)) (IDX.mvpDe[m.iu] ||= []).push(f);
   // premios de los nuestros (jugador del mes, mánager del mes…), leídos de las noticias de FM
+  // premios de temporadas pasadas que dijo el usuario (por temporada, sin el mes; tools/premios_conocidos.json): los
+  // «del año» van a su temporada y los «del mes», a los meses de liga con mejores resultados de esa temporada (el premio
+  // se lo dan al de mejores resultados del mes), marcados como mes probable y sin pisar los leídos de una noticia
+  D.premios = (D.premios || []).filter(p => !p.conocido);
+  const esLiga = p => (typeof NIVEL_LIGA !== 'undefined' && NIVEL_LIGA[p.competicion]) || /league|liga/i.test(p.competicion || '');
+  for (const c of D.premios_conocidos || []) {
+    const base = {iu: c.iu || null, quien: c.quien, manager: c.manager || 0, premio: c.premio, competicion: null, visto: null, texto: null, conocido: true};
+    if (!/del mes/i.test(c.premio)) {
+      for (let i = 0; i < (c.n || 1); i++) D.premios.push({...base, periodo: c.temporada});
+      continue;
+    }
+    const mismo = p => !p.conocido && !!p.manager === !!base.manager && (p.iu || null) === base.iu && p.premio.toLowerCase() === c.premio.toLowerCase();
+    const ya = new Set(D.premios.filter(p => mismo(p) && /^\d{4}-\d{2}$/.test(p.periodo) && tempDeF(p.periodo + '-15') === c.temporada).map(p => p.periodo));
+    const meses = {};
+    for (const p of IDX.partidos) {
+      if (!p.oficial || !esLiga(p) || p.temporada !== c.temporada || p.fecha.slice(5, 7) === '07') continue;
+      const m = (meses[p.fecha.slice(0, 7)] ||= {pts: 0, n: 0, dg: 0});
+      m.n++; m.dg += p.gf - p.gc; m.pts += p.gf > p.gc ? 3 : p.gf === p.gc ? 1 : 0;
+    }
+    // los meses que se saben seguro (los dijo el usuario) y, el resto, los de mejores resultados
+    for (const k of c.meses || []) if (!ya.has(k)) { D.premios.push({...base, periodo: k}); ya.add(k); }
+    const orden = Object.entries(meses).filter(([k, m]) => m.n >= 2 && !ya.has(k)).sort((a, b) => b[1].pts / b[1].n - a[1].pts / a[1].n || b[1].dg - a[1].dg);
+    for (const [k] of orden.slice(0, Math.max(0, (c.n || 1) - ya.size))) D.premios.push({...base, periodo: k, deducido: true});
+  }
   IDX.premiosDe = {};
   for (const p of D.premios || []) if (p.iu) (IDX.premiosDe[p.iu] ||= []).push(p);
   IDX.pj = {};
@@ -224,9 +248,9 @@ function premioHtml(p, conQuien = false) {
   const mes = /^\d{4}-\d{2}$/.test(p.periodo || '');
   const ps = IDX.partidos.filter(q => q.oficial && (mes ? q.fecha.startsWith(p.periodo) : q.temporada === p.periodo));
   const nota = q => p.iu ? (IDX.informe[q.fecha] || []).find(r => r.iu === p.iu)?.nota : null;
-  return `<details class="cant premio"><summary>🏆 <b>${esc(p.premio)}</b>${conQuien ? ` · ${p.iu ? jug(p.iu, p.quien) : esc(p.quien) + ' (mánager)'}` : ''} · ${esc(periodoTxt(p.periodo))}${p.competicion ? ` · ${esc(p.competicion)}` : ''}</summary>
+  return `<details class="cant premio"><summary>🏆 <b>${esc(p.premio)}</b>${conQuien ? ` · ${p.iu ? jug(p.iu, p.quien) : esc(p.quien) + ' (mánager)'}` : ''} · ${esc(periodoTxt(p.periodo))}${p.deducido ? ' <span class="mini" title="FM ya no guarda la noticia: el mes es el de mejores resultados en liga de esa temporada">(mes probable)</span>' : ''}${p.competicion ? ` · ${esc(p.competicion)}` : ''}</summary>
     ${ps.length ? `<div>${ps.map(q => `<div class="tri"><span class="d">${fecha(q.fecha)}</span><span>${pillRes(q)} ${q.casa ? 'ante el' : 'en casa del'} ${esc(q.rival)}${nota(q) ? ` <span class="mini">nota ${nota(q).toFixed(2).replace('.', ',')}${IDX.mvp[q.fecha]?.iu === p.iu ? ' · ★ MVP' : ''}</span>` : ''}</span>${IDX.informe[q.fecha] ? `<button class="chip" data-once="${q.fecha}">Ver once</button>` : ''}</div>`).join('')}</div>` : '<p class="mini">Sin partidos de ese periodo guardados.</p>'}
-    ${p.texto ? `<p class="mini">Noticia: «${esc(p.texto)}»</p>` : ''}</details>`;
+    ${p.texto ? `<p class="mini">Noticia: «${esc(p.texto.split(/(?<=[.!?])\s/)[0].slice(0, 160))}»</p>` : ''}</details>`;
 }
 function edad(nac) {
   if (!nac || !IDX.fechaJuego) return null;
@@ -380,7 +404,7 @@ function estadoHtml() {
 const cuando = f => f ? new Date(f).toLocaleString('es-ES', {day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'}) : '';
 function novedades() {
   const out = [];
-  for (const p of (D.premios || []).slice(-6)) out.push({f: p.visto, juego: true, tag: 'Premio', cls: 'g',
+  for (const p of (D.premios || []).filter(p => p.visto).slice(-6)) out.push({f: p.visto, juego: true, tag: 'Premio', cls: 'g',
     t: `${p.iu ? jug(p.iu, p.quien) : esc(p.quien)} ${p.manager ? '(mánager) ' : ''}gana el ${esc(p.premio)} de ${esc(periodoTxt(p.periodo))}${p.competicion ? ' en la ' + esc(p.competicion) : ''}`});
   for (const [iu, h] of Object.entries(IDX.atr)) {
     if (h.length < 2 || !IDX.enPlantilla.has(+iu)) continue;
