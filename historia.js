@@ -680,44 +680,63 @@ const HIST = (() => {
     const prev = [...ss].reverse().find(s => s.completa) || ss[ss.length - 1];
     const prevSq = {};
     for (const p of prev.sq) prevSq[p.iu] = p;
+    // rendimiento de todas las temporadas con el club, no solo la pasada: cada temporada pesa por sus minutos y
+    // ×0,6 por cada temporada hacia atrás; la que está en curso va a ritmo de temporada completa (pesa según lo jugado)
+    const act = ss[ss.length - 1], ofic = s => s.ps.filter(p => p.ck !== 'AM').length;
+    const frac = act.completa || act === prev ? 1 : Math.max(.05, Math.min(1, ofic(act) / Math.max(1, ofic(prev))));
+    const porTemp = ss.map(s => { const o = {}; for (const p of s.sq) o[p.iu] = p; return o; });
+    const rendDe = iu => {
+      let sn = 0, sw = 0, sm = 0, swm = 0, pj = 0, g = 0;
+      const det = [];
+      for (let i = ss.length - 1; i >= 0; i--) {
+        const p = porTemp[i][iu];
+        if (!p) continue;
+        const w = .6 ** (ss.length - 1 - i), f = i === ss.length - 1 ? frac : 1;
+        sm += w * (p.min || 0); swm += w * f; pj += p.pj || 0;
+        if (p.avg && p.min) { sn += w * p.min * p.avg; sw += w * p.min; }
+        if (p.pj && det.length < 3) { det.push(`${sh(ss[i].t)}: ${d2(p.avg)} en ${p.pj}`); g += p.g || 0; }
+      }
+      return {nota: sw ? sn / sw : 0, min: swm ? Math.round(sm / swm) : 0, pj, g, det: det.join(' · ')};
+    };
     const fj = IDX.fechaJuego ? new Date(IDX.fechaJuego) : new Date();
     const finDe = c => { if (!c) return null; const m = c.match(/(\d{4})-(\d{2})-(\d{2})/) || c.match(/(\d+)\/(\d+)\/(\d{4})/); if (!m) return null; return m[0].includes('-') ? new Date(c.slice(0, 10)) : new Date(+m[3], +m[2] - 1, +m[1]); };
     const filas = D.plantilla.map(p => {
-      const a = J(p.atributos), x = IDX.export[p.iu] || {}, q = prevSq[p.iu] || {}, act = (IDX.stats[p.iu] || {}).total || {};
+      const a = J(p.atributos), x = IDX.export[p.iu] || {}, q = prevSq[p.iu] || {}, st = (IDX.stats[p.iu] || {}).total || {};
       const m = ks => { const v = ks.map(k => a[k]).filter(v => v > 1); return v.length ? Math.round(v.reduce((s, y) => s + y, 0) / v.length * 10) / 10 : null; };
       // para el plan, quien también puede jugar de delantero centro (DL) cuenta como delantero
       const pos = x.posicion || '', gr = /\bDL\b/.test(pos) && !/^(POR|DF)/.test(pos) ? 'DEL' : grupoPos(pos), fin = finDe(p.fin_contrato);
-      return {iu: p.iu, n: p.nombre, pos, gr, edad: edad(p.fecha_nacimiento), min: q.min || 0, pj: q.pj || 0, avgPrev: q.avg || 0, avgAct: act.nota_media || 0, g: q.g || 0,
+      const r = rendDe(p.iu);
+      return {iu: p.iu, n: p.nombre, pos, gr, edad: edad(p.fecha_nacimiento), min: r.min, pj: r.pj, nota: r.nota, det: r.det, avgPrev: q.avg || 0, avgAct: st.nota_media || 0, g: r.g,
               sueldo: p.sueldo_mes_eur || 0, contrato: p.fin_contrato, fin, valor: x.valor, val: valorEur(x.valor),
               pase: gr === 'POR' ? null : m(['Pas', 'Ctr', 'Téc', 'Dec', 'Vis', 'JEq']), pres: gr === 'POR' ? null : m(['Agr', 'Ant', 'Sac', 'Res', 'Det', 'JEq']), rit: gr === 'POR' ? null : m(['Ace', 'Vel'])};
     });
     const med = arr => { const s = arr.filter(v => v).sort((a, b) => a - b); return s.length ? s[Math.floor(s.length / 2)] : 0; };
-    const mSueldo = med(filas.map(f => f.sueldo)), mNota = med(filas.filter(f => f.pj >= 10).map(f => f.avgPrev)), mMin = med(filas.map(f => f.min));
+    const mSueldo = med(filas.map(f => f.sueldo)), mNota = med(filas.filter(f => f.pj >= 10).map(f => f.nota)), mMin = med(filas.map(f => f.min));
     const unAño = new Date(fj); unAño.setFullYear(unAño.getFullYear() + 1);
     for (const f of filas) {
-      f.tag = f.sueldo >= mSueldo * 1.4 && f.pj >= 10 && f.avgPrev && f.avgPrev < mNota ? 'sale'
+      f.tag = f.sueldo >= mSueldo * 1.4 && f.pj >= 10 && f.nota && f.nota < mNota ? 'sale'
         : f.fin && f.fin <= unAño ? 'dec'
-        : f.pj >= 3 && f.avgPrev >= mNota + .15 && f.min < mMin ? 'min'
+        : f.pj >= 3 && f.nota >= mNota + .15 && f.min < mMin ? 'min'
         : f.gr === 'DEF' && f.rit !== null && f.rit <= 8.5 ? 'rev' : 'core';
     }
-    const salidas = filas.filter(f => f.tag === 'sale').sort((a, b) => b.sueldo * (mNota - b.avgPrev) - a.sueldo * (mNota - a.avgPrev));
+    const salidas = filas.filter(f => f.tag === 'sale').sort((a, b) => b.sueldo * (mNota - b.nota) - a.sueldo * (mNota - a.nota));
     const noRenovar = filas.filter(f => f.tag === 'dec');
     if (!calcIni) { salidas.slice(0, 3).forEach(f => calcSel.add(f.iu)); calcIni = true; }
     const ult = D.finanzas[D.finanzas.length - 1] || {};
     if (calcMasa === null) calcMasa = Math.round((ult.masa_salarial_semana || 0) * 5.067);
     if (calcPres === null) calcPres = Math.round((ult.presupuesto_salarial_semana || 0) * 5.067);
     const card = (cls, tag, title, body) => `<div class="card pc ${cls}"><span class="tag">${tag}</span><h4>${title}</h4><p>${body}</p></div>`;
-    const comparable = f => filas.filter(o => o.gr === f.gr && o.iu !== f.iu && o.sueldo && o.sueldo <= f.sueldo * .6 && o.avgPrev >= f.avgPrev && o.pj >= 10).sort((a, b) => b.avgPrev - a.avgPrev)[0];
+    const comparable = f => filas.filter(o => o.gr === f.gr && o.iu !== f.iu && o.sueldo && o.sueldo <= f.sueldo * .6 && o.nota >= f.nota && o.pj >= 10).sort((a, b) => b.nota - a.nota)[0];
     const sells = salidas.slice(0, 6).map((f, i) => { const c = comparable(f); return card('sell', `${i + 1} · ${f.edad >= 29 ? 'Vender' : 'Vender o renegociar'}`, jug(f.iu, f.n),
-      `${eur(f.sueldo)} al mes${f.contrato ? ' hasta ' + fecha(f.contrato) : ''} (la mediana de la plantilla es ${eur(mSueldo)}). Media de ${d2(f.avgPrev)} en ${prev.t} con ${num(f.min)} minutos, por debajo de la mediana del equipo (${d2(mNota)}).${c ? ` ${esc(c.n)} cobra ${eur(c.sueldo)} y rindió ${d2(c.avgPrev)}.` : ''}${f.valor ? ` Valor en pantalla: ${esc(f.valor)}.` : ''}`); });
-    const mins = filas.filter(f => f.tag === 'min').sort((a, b) => b.avgPrev - a.avgPrev).slice(0, 5).map(f => card('min', 'Más minutos', jug(f.iu, f.n),
-      `${d2(f.avgPrev)} de media en ${prev.t} (mediana ${d2(mNota)}) con solo ${num(f.min)} minutos${f.g ? ` y ${f.g} goles` : ''}. ${f.edad ? f.edad + ' años' : ''}${f.sueldo ? ', cobra ' + eur(f.sueldo) : ''}.${f.pres !== null ? ` Pase ${d2(f.pase)} · presión ${d2(f.pres)} · ritmo ${d2(f.rit)}.` : ''}`));
+      `${eur(f.sueldo)} al mes${f.contrato ? ' hasta ' + fecha(f.contrato) : ''} (la mediana de la plantilla es ${eur(mSueldo)}). Media de ${d2(f.nota)} (${f.det}) con ${num(f.min)} minutos por temporada, por debajo de la mediana del equipo (${d2(mNota)}).${c ? ` ${esc(c.n)} cobra ${eur(c.sueldo)} y rinde ${d2(c.nota)}.` : ''}${f.valor ? ` Valor en pantalla: ${esc(f.valor)}.` : ''}`); });
+    const mins = filas.filter(f => f.tag === 'min').sort((a, b) => b.nota - a.nota).slice(0, 5).map(f => card('min', 'Más minutos', jug(f.iu, f.n),
+      `${d2(f.nota)} de media (${f.det}; mediana ${d2(mNota)}) con solo ${num(f.min)} minutos por temporada${f.g ? ` y ${f.g} goles` : ''}. ${f.edad ? f.edad + ' años' : ''}${f.sueldo ? ', cobra ' + eur(f.sueldo) : ''}.${f.pres !== null ? ` Pase ${d2(f.pase)} · presión ${d2(f.pres)} · ritmo ${d2(f.rit)}.` : ''}`));
     // perfiles: líneas con peor rendimiento o menos jugadores (sin nombres de fichajes)
     const NECESIDAD = {POR: 2, DEF: 7, MED: 7, DEL: 4};
-    const grupos = Object.keys(NECESIDAD).map(g => { const l = filas.filter(f => f.gr === g); const r = l.filter(f => f.pj >= 10); return {g, n: l.length, nota: media(r.map(f => f.avgPrev)) || 0, pase: media(l.map(f => f.pase).filter(Boolean)), pres: media(l.map(f => f.pres).filter(Boolean)), rit: media(l.map(f => f.rit).filter(Boolean)), sueldo: med(l.map(f => f.sueldo)), falta: NECESIDAD[g] - l.filter(f => f.tag !== 'sale').length}; });
+    const grupos = Object.keys(NECESIDAD).map(g => { const l = filas.filter(f => f.gr === g); const r = l.filter(f => f.pj >= 10); return {g, n: l.length, nota: media(r.map(f => f.nota)) || 0, pase: media(l.map(f => f.pase).filter(Boolean)), pres: media(l.map(f => f.pres).filter(Boolean)), rit: media(l.map(f => f.rit).filter(Boolean)), sueldo: med(l.map(f => f.sueldo)), falta: NECESIDAD[g] - l.filter(f => f.tag !== 'sale').length}; });
     const NOMBRE_G = {POR: 'Portero', DEF: 'Defensa', MED: 'Centrocampista', DEL: 'Delantero'};
     const need = grupos.sort((a, b) => (b.falta - a.falta) || (a.nota - b.nota)).map((g, i) => card(i < 2 ? 'sign' : 'min', i < 2 ? `Prioridad ${i + 1} · ${NOMBRE_G[g.g]}` : 'Revisar', `${NOMBRE_G[g.g]}: ${g.n} en plantilla${g.falta > 0 ? `, ${g.falta === 1 ? 'falta 1' : 'faltan ' + g.falta} para una rotación sana` : ''}`,
-      `Media del grupo en ${prev.t}: ${d2(g.nota)}.${g.g !== 'POR' ? ` Perfil a buscar por encima de lo que hay: pase ≥ ${d2(Math.ceil((g.pase || 10) + 1))}, presión ≥ ${d2(Math.ceil((g.pres || 10) + 1))}, ritmo ≥ ${d2(Math.ceil((g.rit || 10) + 1))} (medias actuales del grupo: ${d2(g.pase)} · ${d2(g.pres)} · ${d2(g.rit)}).` : ' Mira reflejos, mando de área y uno contra uno por encima de los del titular actual.'} Sueldo orientativo: hasta ${eur(Math.round(g.sueldo * 1.3 / 100) * 100)} al mes. Los nombres los buscas tú: aquí solo va el perfil.`));
+      `Media del grupo: ${d2(g.nota)}.${g.g !== 'POR' ? ` Perfil a buscar por encima de lo que hay: pase ≥ ${d2(Math.ceil((g.pase || 10) + 1))}, presión ≥ ${d2(Math.ceil((g.pres || 10) + 1))}, ritmo ≥ ${d2(Math.ceil((g.rit || 10) + 1))} (medias actuales del grupo: ${d2(g.pase)} · ${d2(g.pres)} · ${d2(g.rit)}).` : ' Mira reflejos, mando de área y uno contra uno por encima de los del titular actual.'} Sueldo orientativo: hasta ${eur(Math.round(g.sueldo * 1.3 / 100) * 100)} al mes. Los nombres los buscas tú: aquí solo va el perfil.`));
     const info = [...salidas.map(f => ({...f, k: 'venta'})), ...noRenovar.map(f => ({...f, k: 'fin'}))];
     const on = info.filter(x => calcSel.has(x.iu)), libera = on.reduce((a, x) => a + x.sueldo, 0), ingreso = on.filter(x => x.k === 'venta').reduce((a, x) => a + (x.val || 0), 0);
     const masa = calcMasa - libera, margen = calcPres - masa;
@@ -728,10 +747,11 @@ const HIST = (() => {
     const caros = [...filas].sort((a, b) => b.sueldo - a.sueldo).slice(0, 4);
     const renov = renovaciones(filas, fj, mSueldo, mNota, mMin, calcPres - calcMasa);
     return `<section><div class="wrap"><h2 data-n="11">Plan de plantilla</h2>
-      <p class="sub">Primero quién podría irse, después qué perfiles hacen falta y a quién dar más minutos. Lo calcula FM Hub con números y atributos visibles (rendimiento de ${esc(prev.t)}, sueldos, contratos y valor). No ve lesiones, moral ni tu táctica, así que la decisión final es tuya. Los fichajes concretos los buscas tú: aquí solo van perfiles.</p>
+      <p class="sub">Primero quién podría irse, después qué perfiles hacen falta y a quién dar más minutos. Lo calcula FM Hub con números y atributos visibles (rendimiento de todas las temporadas con el club, pesando más la actual y la pasada; sueldos, contratos y valor). No ve lesiones, moral ni tu táctica, así que la decisión final es tuya. Los fichajes concretos los buscas tú: aquí solo van perfiles.</p>
       <div class="card"><h4 style="margin:0 0 6px;color:var(--ink);font:800 17px Archivo;text-transform:none;letter-spacing:0">Cómo se mide</h4><ul style="margin:6px 0 0;padding-left:18px;font-size:13.5px">
         <li><b>Pase</b> = media de pase, control, técnica, decisiones, visión y trabajo en equipo. <b>Presión</b> = agresividad, anticipación, sacrificio, resistencia, determinación y trabajo en equipo. <b>Ritmo</b> = aceleración y velocidad.</li>
-        <li><b>Salida:</b> cobra al menos 1,4 veces la mediana (${eur(mSueldo)}) y rinde por debajo de la mediana del equipo (${d2(mNota)}). <b>Contrato:</b> acaba en menos de un año. <b>Más minutos:</b> rinde por encima de la mediana y juega menos que la mayoría. <b>Revisar:</b> defensa con ritmo de 8,5 o menos.</li></ul></div>
+        <li><b>Salida:</b> cobra al menos 1,4 veces la mediana (${eur(mSueldo)}) y rinde por debajo de la mediana del equipo (${d2(mNota)}). <b>Contrato:</b> acaba en menos de un año. <b>Más minutos:</b> rinde por encima de la mediana y juega menos que la mayoría. <b>Revisar:</b> defensa con ritmo de 8,5 o menos.</li>
+        <li><b>Media:</b> la de todas sus temporadas en el club, cada una según sus minutos; cada temporada hacia atrás pesa un 40 % menos, y la que está en curso cuenta según lo jugado. <b>Minutos</b> por temporada con ese mismo peso (la actual, a ritmo de temporada completa).</li></ul></div>
       <h4>1 · Quiénes podrían irse</h4><div class="pgrid">${sells.join('') || '<p class="vacio">Nadie cumple los criterios de salida.</p>'}</div>
       <h4>2 · A quién renovarías</h4>${renov}
       <h4>3 · Qué perfiles hacen falta</h4><div class="pgrid">${need.join('')}</div>
@@ -740,14 +760,14 @@ const HIST = (() => {
         <div style="display:flex;gap:14px;flex-wrap:wrap;margin:10px 0;font-size:13px"><label>Masa salarial (€/mes) <input id="hcM" type="number" value="${calcMasa}" style="width:110px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink)"></label><label>Presupuesto salarial (€/mes) <input id="hcP" type="number" value="${calcPres}" style="width:110px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink)"></label></div>
         <div class="grid g4"><div class="card kpi"><b style="font-size:22px">−${miles(libera)} €</b><span>Sueldos liberados al mes</span></div><div class="card kpi"><b style="font-size:22px">${miles(masa)} €</b><span>Masa salarial resultante</span></div><div class="card kpi"><b style="font-size:22px;color:var(--${margen >= 0 ? 'w' : 'l'})">${margen >= 0 ? '+' : '−'}${miles(Math.abs(margen))} €</b><span>Margen frente al presupuesto</span><small>${margen >= 0 ? 'Para fichar sin pasarte' : 'Aún por encima del presupuesto'}</small></div><div class="card kpi"><b style="font-size:22px">${kEur(ingreso)}</b><span>Valor de mercado de lo que se vende</span><small>Orientativo; el precio real lo marca la oferta</small></div></div></div>
       <h4>5 · A quién dar más minutos</h4><div class="pgrid">${mins.join('') || '<p class="vacio">Nadie destaca con pocos minutos.</p>'}</div>
-      <h4>6 · Radiografía de la plantilla</h4>${tabla('radio', [{k: 'n', t: 'Jugador', h: f => jug(f.iu, f.n)}, {k: 'pos', t: 'Posición', cls: 'cmp'}, {k: 'edad', t: 'Edad', n: 1}, {k: 'min', t: `Min. ${sh(prev.t)}`, n: 1, h: f => num(f.min)},
+      <h4>6 · Radiografía de la plantilla</h4>${tabla('radio', [{k: 'n', t: 'Jugador', h: f => jug(f.iu, f.n)}, {k: 'pos', t: 'Posición', cls: 'cmp'}, {k: 'edad', t: 'Edad', n: 1}, {k: 'min', t: 'Min./temp.', n: 1, h: f => num(f.min)}, {k: 'nota', t: 'Media', n: 1, h: f => f.nota ? `<span title="${esc(f.det)}">${d2(f.nota)}</span>` : '—'},
         {k: 'avgPrev', t: `Media ${sh(prev.t)}`, n: 1, h: f => f.avgPrev ? d2(f.avgPrev) : '—'}, {k: 'avgAct', t: 'Media actual', n: 1, h: f => f.avgAct ? d2(f.avgAct) : '—'},
         {k: 'pase', t: 'Pase', n: 1, h: f => c(f.pase, 11, 8)}, {k: 'pres', t: 'Presión', n: 1, h: f => c(f.pres, 12, 9.5)}, {k: 'rit', t: 'Ritmo', n: 1, h: f => c(f.rit, 13, 8.5)},
         {k: 'sueldo', t: '€/mes', n: 1, h: f => miles(f.sueldo)}, {k: 'contrato', t: 'Contrato', h: f => fecha(f.contrato)}, {k: 'tag', t: 'Valoración', h: f => `<span class="vd v${tg[f.tag][1]}">${tg[f.tag][0]}</span>`}], filas, {k: 'min', d: -1})}
       <p class="sub" style="margin:8px 0 0;font-size:12px">Verde = alto, rojo = bajo (pase ≥11 / ≤8; presión ≥12 / ≤9,5; ritmo ≥13 / ≤8,5). Son medias de atributos del juego; los porteros no tienen estas cifras.</p>
       <h4>7 · Otras cosas a vigilar</h4><div class="pgrid">
         ${card('now', 'Renovaciones', 'Cuándo acaban los contratos', Object.entries(porAño).sort().map(([a, n]) => `${n} en ${a}`).join(' · ') + '. A quien vayas a conservar, renuévalo antes de que le quede un año y pierda valor de venta.')}
-        ${card('min', 'Masa salarial por rendimiento', 'Quién cobra más', caros.map(f => `${esc(f.n)} (${miles(f.sueldo)} €, media ${f.avgPrev ? d2(f.avgPrev) : '—, aún sin jugar'})`).join(' · ') + '. Es lo primero que mirar si hay que recortar.')}</div>
+        ${card('min', 'Masa salarial por rendimiento', 'Quién cobra más', caros.map(f => `${esc(f.n)} (${miles(f.sueldo)} €, media ${f.nota ? d2(f.nota) : '—, aún sin jugar'})`).join(' · ') + '. Es lo primero que mirar si hay que recortar.')}</div>
     </div></section>`;
   }
 
@@ -761,7 +781,7 @@ const HIST = (() => {
     const maxSueldo = Math.max(0, ...filas.map(f => f.sueldo));
     const cand = filas.filter(f => f.fin && meses(f.fin) <= 18 && meses(f.fin) > -1);
     if (!cand.length) return `<p class="vacio">Nadie acaba contrato en los próximos 18 meses. Cuando falte año y medio, aparecerán aquí.</p>`;
-    const nota = f => f.avgPrev || f.avgAct || 0;
+    const nota = f => f.nota || f.avgAct || 0;
     const años = e => !e ? '2–3 años' : e <= 21 ? '4–5 años' : e <= 24 ? '3–4 años' : e <= 28 ? '3 años' : e <= 31 ? '2 años' : '1 año (con otro opcional si cumple)';
     const out = cand.map(f => {
       const m = meses(f.fin), n = nota(f), juega = f.min >= mMin * .8, rinde = n && n >= mNota, joven = f.edad && f.edad <= 23;
@@ -783,7 +803,7 @@ const HIST = (() => {
       const cedido = (D.plantilla.find(p => p.iu === f.iu) || {}).cedido_a;
       const urg = m <= 6 ? `<b style="color:var(--l)">Urgente:</b> le quedan ${Math.max(0, Math.round(m))} meses; en los últimos 6 meses puede firmar por otro club gratis.`
         : m <= 12 ? `Le queda menos de un año: renueva antes de que baje su valor de venta.` : `Le quedan ${Math.round(m)} meses: hay margen, pero renovar pronto suele salir más barato.`;
-      const rend = n ? `media de ${d2(n)} (la del equipo es ${d2(mNota)}) con ${num(f.min)} minutos` : 'aún sin partidos que valorar';
+      const rend = n ? `media de ${d2(n)} (la del equipo es ${d2(mNota)}) con ${num(f.min)} minutos por temporada` : 'aún sin partidos que valorar';
       const sube = hasta - f.sueldo;
       return {f, tipo, cls, m, sube: cls === 'sell' ? 0 : sube, html: `<div class="card pc ${cls}"><span class="tag">${tipo}${m <= 6 ? ' · urgente' : ''}</span><h4>${jug(f.iu, f.n)}</h4>
         <p>${f.edad ? f.edad + ' años · ' : ''}${esc(f.pos || '')} · contrato hasta ${fecha(f.contrato)}${cedido ? ` · cedido en el ${esc(cedido)}` : ''}. Cobra ${eur(f.sueldo)} al mes; ${rend}.</p>
