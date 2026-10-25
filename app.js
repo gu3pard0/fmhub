@@ -161,6 +161,23 @@ function preparar() {
   }
   IDX.historial = {};
   for (const h of D.historial) (IDX.historial[h.iu] ||= []).push(h);
+  // jugador del partido (MVP) de cada partido oficial: el que FM Hub vio sumar un MVP en ese partido; si no (temporadas
+  // de antes), se deduce: FM da el MVP al mejor nota del partido, así que cada jugador se queda con sus partidos de
+  // mejor nota del equipo hasta los MVP que le da la tabla de carrera esa temporada (comprobado: acierta 30 de 30)
+  IDX.mvp = {}; IDX.mvpDe = {};
+  const oficial = new Set(IDX.partidos.filter(p => p.oficial).map(p => p.fecha));
+  for (const r of D.partido_jugador) if (r.mvp && r.fecha && !r.varios && oficial.has(r.fecha)) IDX.mvp[r.fecha] = {iu: r.iu, seguro: true};
+  const mejor = {};
+  for (const r of D.partido_informe || []) if (r.iu && r.nota && oficial.has(r.fecha) && (!mejor[r.fecha] || r.nota > mejor[r.fecha].nota)) mejor[r.fecha] = r;
+  const cuantos = {};
+  for (const h of D.historial) if (h.club === club && h.tipo === 'total' && h.mvp) (cuantos[h.temporada] ||= {})[h.iu] = h.mvp;
+  for (const e of D.estadisticas) if (e.tipo === 'total' && e.mvp && IDX.temporadaActual) (cuantos[IDX.temporadaActual] ||= {})[e.iu] = e.mvp;
+  for (const [t, por] of Object.entries(cuantos)) for (const [iu, k] of Object.entries(por)) {
+    const ya = Object.entries(IDX.mvp).filter(([f, m]) => m.iu === +iu && tempDeF(f) === t).length;
+    const cands = Object.values(mejor).filter(r => r.iu === +iu && tempDeF(r.fecha) === t && !IDX.mvp[r.fecha]).sort((a, b) => b.nota - a.nota);
+    for (const r of cands.slice(0, Math.max(0, k - ya))) IDX.mvp[r.fecha] = {iu: r.iu, seguro: false};
+  }
+  for (const [f, m] of Object.entries(IDX.mvp)) (IDX.mvpDe[m.iu] ||= []).push(f);
   IDX.pj = {};
   for (const r of D.partido_jugador) (IDX.pj[r.iu] ||= []).push(r);
   IDX.nombres = {};
@@ -473,6 +490,7 @@ V.partidos = () => {
       {k: 'res', t: 'Res.', h: p => pillRes(p) + esc(p.pen)},
       {k: 'espectadores', t: 'Público', n: 1, h: p => num(p.espectadores)},
       {k: 'gol', t: 'Goleadores', cls: 'sc', h: golesTexto},
+      {k: 'mvp', t: 'MVP', cls: 'sc', v: p => IDX.nombres[IDX.mvp[p.fecha]?.iu] || '', h: p => IDX.mvp[p.fecha] ? `★ ${jug(IDX.mvp[p.fecha].iu)}${IDX.mvp[p.fecha].seguro ? '' : ' <span class="mini" title="Deducido: la mejor nota del partido, cuadrado con los MVP de su tabla de carrera">≈</span>'}` : ''},
       {k: 'formacion', t: 'Formación', cls: 'cmp', h: p => esc(p.formacion || IDX.informe[p.fecha]?.[0]?.formacion || '') + (p.formacion_rival ? `<br><span class="mini">rival: ${esc(p.formacion_rival)}</span>` : '')},
       ...(D.partido_informe?.length ? [{k: 'once', t: 'Once', h: p => IDX.informe[p.fecha] ? `<button class="chip" data-once="${p.fecha}">Ver once</button>` : '<span class="mini">—</span>'}] : []),
       ...(D.alineaciones?.length ? [{k: 'alin', t: 'Alineación', cls: 'sc', h: p => (IDX.alin[p.fecha] || []).map(a => jug(a.iu, a.jugador)).join(', ') || '—'}] : []),
@@ -638,6 +656,11 @@ V.jugador = iu => {
   const partidosJ = pj.length ? tabla('jp' + iu, [{k: 'fecha', t: 'Fecha', h: r => fecha(r.fecha)}, {k: 'rival', t: 'Partido', h: r => esc(r.local + ' – ' + r.visitante)},
     {k: 'titular', t: 'Tit', n: 1, h: r => r.titular ? 'sí' : 'no'}, {k: 'minutos', t: 'Min', n: 1}, {k: 'goles', t: 'Gol', n: 1}, {k: 'asistencias', t: 'Asis', n: 1},
     {k: 'amarillas', t: 'Am', n: 1}, {k: 'nota', t: 'Nota', n: 1}], pj, {k: 'fecha', d: -1}) : '<p class="mini">Se rellena solo partido a partido desde que FM Hub está en marcha.</p>';
+  const mvps = (IDX.mvpDe[iu] || []).slice().sort().reverse().map(f => IDX.partidos.find(x => x.fecha === f)).filter(Boolean);
+  const mvpHtml = mvps.length ? `<h4>Jugador del partido · ${mvps.length}</h4><div class="mvps">${mvps.map(q => {
+    const nota = (IDX.informe[q.fecha] || []).find(r => r.iu === iu)?.nota;
+    return `<div class="tri"><span class="d">${fecha(q.fecha)}</span><span>${pillRes(q)} ${q.casa ? 'ante el' : 'en casa del'} ${esc(q.rival)} <span class="mini">${esc(q.competicion)}${nota ? ' · nota ' + nota.toFixed(2).replace('.', ',') : ''}${IDX.mvp[q.fecha].seguro ? '' : ' · deducido'}</span></span>${IDX.informe[q.fecha] ? `<button class="chip" data-once="${q.fecha}">Ver once</button>` : ''}</div>`;
+  }).join('')}</div><p class="mini">«Deducido»: de antes de que FM Hub lo viera en directo; FM da el MVP a la mejor nota del partido y la tabla de carrera dice cuántos tuvo cada temporada.</p>` : '';
   const meta = p ? [['Posición', x.posicion || '–'], ['Edad', edad(p.fecha_nacimiento) ?? '–'], ['Nacimiento', fecha(p.fecha_nacimiento)], ['Altura', p.altura_cm ? p.altura_cm + ' cm' : '–'],
     ['Sueldo', eur(p.sueldo_mes_eur) + '/mes'], ['Contrato hasta', fecha(p.fin_contrato)], ['Valor (pantalla)', x.valor || '–'], ['Cedido a', p.cedido_a || '–']] : [['Estado', 'exjugador']];
   return `<section><div class="wrap">
@@ -648,6 +671,7 @@ V.jugador = iu => {
     ${HIST.trayectoria(iu)}
     ${HIST.records(iu)}
     ${TAC.porPuestoHtml(iu)}
+    ${mvpHtml}
     <h4>Atributos</h4>${atr}
     ${hist.length > 1 || (IDX.evol[iu] || []).length > 1 ? `<div class="cols2"><div class="card"><h4 style="margin-top:0">Suma de atributos en el tiempo</h4>${mini(hist.filter(h => Object.values(h.v).filter(x => x > 1).length >= 20).map(h => sumaAtr(h.v)))}<p class="mini">${hist.length} capturas con cambios.</p></div>
       <div class="card"><h4 style="margin-top:0">Nota media en las exportaciones</h4>${mini((IDX.evol[iu] || []).filter(e => e.nota_media).map(e => e.nota_media), v => Number(v).toFixed(2))}<p class="mini">Nota media de la temporada en cada exportación de plantilla (vuelve a empezar cada temporada).</p></div></div>` : ''}
@@ -779,7 +803,7 @@ function verOnce(f) {
   ficha.iu = null;
   $('#mT').textContent = p ? `${p.local} ${p.goles_local}-${p.goles_visitante} ${p.visitante}` : fecha(f);
   $('#mS').textContent = [fecha(f), p?.competicion, rs[0]?.formacion, rs.some(r => r.dudoso) ? 'puede ser de otro partido (dudoso)' : ''].filter(Boolean).join(' · ');
-  const fila = r => `<tr><td class="n">${r.dorsal ?? ''}</td><td>${r.iu ? jug(r.iu, r.jugador) : esc(r.jugador || 'id ' + r.id_interno)}</td>
+  const fila = r => `<tr><td class="n">${r.dorsal ?? ''}</td><td>${r.iu ? jug(r.iu, r.jugador) : esc(r.jugador || 'id ' + r.id_interno)}${r.iu && IDX.mvp[f]?.iu === r.iu ? ` <span class="pill" title="Jugador del partido${IDX.mvp[f].seguro ? '' : ' (deducido)'}">★ MVP</span>` : ''}</td>
     <td>${esc(r.puesto || '—')}${r.lado ? ` <small>${r.lado === 'I' ? 'izq.' : 'der.'}</small>` : ''}${r.puesto_final && r.puesto_final !== r.puesto ? ` <small>→ ${esc(r.puesto_final)}</small>` : ''}</td>
     <td class="n">${r.minutos ?? ''}</td><td class="n">${r.nota ? Number(r.nota).toFixed(2).replace('.', ',') : '—'}</td><td class="n">${r.goles || ''}</td>
     <td>${[r.amarilla ? `Am. ${r.amarilla}'` : '', r.roja ? `<b>Roja ${r.roja}'</b>` : ''].filter(Boolean).join(' · ')}</td>

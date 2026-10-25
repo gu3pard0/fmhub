@@ -285,24 +285,7 @@ const HIST = (() => {
       ${hv.length ? `<div class="card" style="margin-top:14px"><h4 style="margin-top:0">Primera vuelta frente a segunda vuelta (puntos por partido)</h4>
         ${grafPares(hv.map(x => x.v.map(q => q.n ? Math.round(q.pts / q.n * 100) / 100 : 0)), hv.map(x => sh(x.s.t)), ['var(--bar)', 'var(--gold)'], ['1.ª vuelta', '2.ª vuelta'], 3, d2)}
         <p class="sub" style="margin:8px 0 0;font-size:13px">${hv.map(x => `${x.s.t}: ${x.v[0].pts} → ${x.v[1].pts} pts`).join(' · ')}.</p></div>` : ''}
-      ${premios()}
     </div></section>`;
-  }
-  // premios: «jugador del partido» (MVP) de cada temporada, de la tabla de carrera de FM y, la temporada en curso, de la
-  // plantilla. Los premios del mes y del año (jugador, mánager) aún no los lee FM Hub: tools/diagnostico_premios.py
-  function premios() {
-    const ss = S().filter(s => s.sq.some(p => p.mvp));
-    if (!ss.length) return '';
-    const total = {};
-    for (const s of ss) for (const p of s.sq) if (p.mvp) (total[p.iu] ||= {iu: p.iu, n: p.n, mvp: 0}).mvp += p.mvp;
-    const top = Object.values(total).sort((a, b) => b.mvp - a.mvp).slice(0, 5);
-    return `<div class="card" style="margin-top:14px"><h4 style="margin-top:0">Premios · jugador del partido (MVP)</h4>
-      <ul class="facts" style="grid-template-columns:1fr">${[...ss].reverse().map(s => {
-        const l = s.sq.filter(p => p.mvp).sort((a, b) => b.mvp - a.mvp).slice(0, 3);
-        return `<li><b>${s.t}</b>${s.completa ? '' : ' (en curso)'}: ${l.map(p => `${jug(p.iu, p.n)} ${p.mvp}`).join(' · ')}</li>`;
-      }).join('')}</ul>
-      <p class="sub" style="margin:8px 0 0;font-size:13px">Más veces jugador del partido con el club: ${top.map(p => `${jug(p.iu, p.n)} (${p.mvp})`).join(' · ')}.</p>
-      <p class="mini" style="margin:6px 0 0">Jugador y mánager del mes y del año: FM Hub aún no los lee del juego.</p></div>`;
   }
 
   // ---------------------------------------------------------------- 02 · Temporada a temporada
@@ -567,6 +550,8 @@ const HIST = (() => {
     const ts = ss.flatMap(s => s.sq.map(p => ({...p, t: s.t}))).sort((a, b) => b.g - a.g)[0]; if (ts) R.push(['Más goles en una temporada', `${ts.g} · ${ts.n} (${ts.t})`]);
     const jov = ss.flatMap(s => s.sq.filter(p => p.pj > 0 && p.edad).map(p => ({...p, t: s.t})));
     if (jov.length) { const a = jov.reduce((x, y) => y.edad < x.edad ? y : x), b = jov.reduce((x, y) => y.edad > x.edad ? y : x); R.push(['Jugador más joven en jugar', `${a.n} · ${a.edad} años (${a.t})`], ['Jugador más veterano', `${b.n} · ${b.edad} años (${b.t})`]); }
+    const mvps = Object.entries(IDX.mvpDe || {}).sort((a, b) => b[1].length - a[1].length)[0];
+    if (mvps) R.push(['Más veces jugador del partido', `${IDX.nombres[mvps[0]] || '¿?'} · ${mvps[1].length}`]);
     const mf = IDX.traspasos.filter(t => t.entra && t.precio_eur).sort((a, b) => b.precio_eur - a.precio_eur)[0]; if (mf) R.push(['Mayor fichaje', `${mf.jugador} · ${kEur(mf.precio_eur)}`]);
     const mv = IDX.traspasos.filter(t => !t.entra && !t.cesion && t.precio_eur).sort((a, b) => b.precio_eur - a.precio_eur)[0]; if (mv) R.push(['Mayor venta', `${mv.jugador} · ${kEur(mv.precio_eur)}`]);
     return `<section><div class="wrap"><h2 data-n="08">Hitos y récords</h2>
