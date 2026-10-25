@@ -420,19 +420,25 @@ function motor() {
   }
 
   // ===== selección: las mejores, como mucho una por métrica y sentido =====
-  const vistas = new Set(), lista = [];
-  // variedad: primero la mejor de cada tipo, luego el resto por puntuación
-  const orden = out.sort((a, b) => b.score - a.score);
-  const tipos = new Set();
-  const primeras = orden.filter(c => !tipos.has(c.tipo) && tipos.add(c.tipo));
-  for (const c of [...primeras, ...orden]) {
-    const firma = c.n + '|' + (c.t || '') + '|' + c.hecho.split(' de ').slice(1).join(' de ').slice(0, 50);
-    if (vistas.has(c.fam) || vistas.has(firma) || vistas.has(c.hecho)) continue;
-    vistas.add(c.fam); vistas.add(firma); vistas.add(c.hecho);
-    lista.push(c);
+  function seleccionar(cands, max) {
+    const vistas = new Set(), lista = [];
+    // variedad: primero la mejor de cada tipo, luego el resto por puntuación
+    const orden = [...cands].sort((a, b) => b.score - a.score);
+    const tipos = new Set();
+    const primeras = orden.filter(c => !tipos.has(c.tipo) && tipos.add(c.tipo));
+    for (const c of [...primeras, ...orden]) {
+      const firma = c.n + '|' + (c.t || '') + '|' + c.hecho.split(' de ').slice(1).join(' de ').slice(0, 50);
+      if (vistas.has(c.fam) || vistas.has(firma) || vistas.has(c.hecho)) continue;
+      vistas.add(c.fam); vistas.add(firma); vistas.add(c.hecho);
+      lista.push(c);
+    }
+    // se cortan las primeras (las mejores de cada tipo van delante) y se ordenan por puntuación
+    return lista.slice(0, max).sort((a, b) => b.score - a.score);
   }
-  // se cortan las 60 primeras (las mejores de cada tipo van delante) y se ordenan por puntuación
-  return {lista: lista.slice(0, 60).sort((a, b) => b.score - a.score), ultima, candidatas: out.length};
+  // y las de cada temporada por separado: las de una temporada acabada siguen ahí (se recalculan con sus datos)
+  const porTemp = {};
+  for (const t of [...new Set(out.map(c => c.t).filter(Boolean))]) porTemp[t] = seleccionar(out.filter(c => c.t === t), 40);
+  return {lista: seleccionar(out, 60), ultima, porTemp, candidatas: out.length};
 }
 
 // ---------------------------------------------------------------- vista
@@ -442,14 +448,17 @@ function curiosidades() {
 }
 
 function vistaCuriosidades() {
-  const todas = curiosidades(), {ultima, candidatas} = curiosidades.cache;
-  const filtro = vistaCuriosidades.f ||= 'todas';
-  const lista = filtro === 'ultima' ? todas.filter(c => c.t === ultima) : todas;
+  const todas = curiosidades(), {ultima, porTemp, candidatas} = curiosidades.cache;
+  const temps = Object.keys(porTemp).sort().reverse();
+  let filtro = vistaCuriosidades.f || 'todas';
+  if (filtro !== 'todas' && !porTemp[filtro]) filtro = 'todas';
+  const lista = filtro === 'todas' ? todas : porTemp[filtro];
   const chip = (k, t) => `<button class="chip" data-cf="${k}" aria-pressed="${filtro === k}">${t}</button>`;
   return `<section><div class="wrap"><h2 data-n="13">Datos y curiosidades</h2>
     <p class="sub">Curiosidades que no aportan nada, pero entretienen. Nadie las escribe: FM Hub recorre todos los datos (jugadores, temporadas, partidos, rachas, rivales, minutos, atributos, finanzas y traspasos), busca récords, mínimos, rachas y primicias y enseña las ${todas.length} más llamativas de ${miles(candidatas)} encontradas. Cambian solas con cada partido.</p>
-    <div class="filters">${chip('todas', `Todas (${todas.length})`)}${chip('ultima', `Temporada ${esc(ultima || '')} (${todas.filter(c => c.t === ultima).length})`)}</div>
-    <div class="curs">${lista.map(c => tarjeta(c, todas.indexOf(c))).join('') || '<p class="vacio">No hay curiosidades de esta temporada todavía.</p>'}</div>
+    <div class="filters">${chip('todas', `Las mejores (${todas.length})`)}${temps.map(t => chip(t, `${esc(t)}${t === ultima ? ' · en curso' : ''} (${porTemp[t].length})`)).join('')}</div>
+    <p class="mini">Cada temporada guarda sus curiosidades aunque se acabe: récords, rachas y primicias de esa temporada, calculados con sus partidos y su plantilla.</p>
+    <div class="curs">${(vistaCuriosidades.lista = lista).map((c, i) => tarjeta(c, i)).join('') || '<p class="vacio">No hay curiosidades de esta temporada todavía.</p>'}</div>
   </div></section>`;
 }
 
@@ -477,7 +486,7 @@ function partirTexto(texto, max) {
   return out;
 }
 async function descargarTarjeta(i) {
-  const c = curiosidades()[i];
+  const c = (vistaCuriosidades.lista || curiosidades())[i];
   const css = getComputedStyle(document.documentElement);
   const v = n => css.getPropertyValue('--' + n).trim();
   const color = s => s.replace(/var\(--([a-z]+)\)/g, (m, n) => v(n));

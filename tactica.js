@@ -508,6 +508,10 @@ const TAC = (() => {
     return {fechas: set, quitar};
   }
   // cambios de titular sostenidos: [{i (puesto), x, tit, mejor, ahora: [prioridad del que entra, del titular]}]
+  // dónde jugó en sus últimos partidos oficiales: «LI 7,85 · EXT 7,61 · …» (el más reciente primero)
+  function ultimosPuestos(R, iu, n = 5) {
+    return ((R[iu] || {}).partidos || []).slice(0, n).map(x => `${x.code ? corto(x.code) : x.tit ? '¿?' : 'supl.'} ${d2(x.nota)}`).join(' · ') || 'sin partidos esta temporada';
+  }
   function cambiosSostenidos(R, ref) {
     const fechas = fechasOficiales(), props = [];
     if (fechas.length <= N_SOSTENIDO) return props;
@@ -520,8 +524,14 @@ const TAC = (() => {
       if (!tit || vistos.has(tit.iu)) return;
       vistos.add(tit.iu);
       const p = o => prioridad(o, x.code, R, ref).total, p0 = o => prioridad(o, x.code, Rn, refn).total;
-      const mejor = x.opciones.slice(1).filter(o => !ced.has(o.iu) && titularEn[o.iu] === undefined).sort((a, b) => p(b) - p(a))[0];
-      if (mejor && p(mejor) - p(tit) >= MARGEN && p0(mejor) > p0(tit)) props.push({i, x, tit, mejor, ahora: [p(mejor), p(tit)]});
+      // antes de proponerlo, dónde ha jugado de verdad: al menos 2 partidos en ESTE puesto según FM (informe u once
+      // leído) y rindiendo ahí como tu titular o mejor; una buena racha en otro puesto (de extremo) no le hace titular de lateral
+      const enEste = o => evidencia(R[o.iu] || {}, x.code, true);
+      const evT = enEste(tit), refT = evT ? evT.n : mediaPropia(R[tit.iu] || {}) || ref.mNota;
+      const mejor = x.opciones.slice(1).filter(o => !ced.has(o.iu) && titularEn[o.iu] === undefined)
+        .filter(o => { const ev = enEste(o); return ev && ev.pj >= 2 && ev.n >= refT; }).sort((a, b) => p(b) - p(a))[0];
+      if (mejor && p(mejor) - p(tit) >= MARGEN && p0(mejor) > p0(tit))
+        props.push({i, x, tit, mejor, ahora: [p(mejor), p(tit)], ev: [enEste(mejor), evT], donde: [ultimosPuestos(R, mejor.iu), ultimosPuestos(R, tit.iu)]});
     });
     return props;
   }
@@ -555,10 +565,24 @@ const TAC = (() => {
     // ¿algún cambio de titular sostenido? (va antes que el detalle del último partido)
     const props = cambiosSostenidos(R, ref);
     const propsHtml = props.length ? `<div class="pgrid">${props.map(({x, tit, mejor, ahora}) => `<div class="card pc min"><span class="tag">Cambio sostenido · ${x.rol ? esc(x.rol) : corto(x.code)}</span><h4>${esc(nombre(mejor.iu))} por delante de ${esc(nombre(tit.iu))}</h4>
-        <p>${jug(mejor.iu, nombre(mejor.iu))} tiene ${d2(ahora[0])} de prioridad en este puesto y tu titular, ${d2(ahora[1])}; y ya iba por delante antes de los ${N_SOSTENIDO} últimos partidos.</p></div>`).join('')}</div>
+        <p>${jug(mejor.iu, nombre(mejor.iu))} tiene ${d2(ahora[0])} de prioridad en este puesto y tu titular, ${d2(ahora[1])}; y ya iba por delante antes de los ${N_SOSTENIDO} últimos partidos.</p>
+        <p class="mini">En este puesto (según FM): ${esc(nombre(mejor.iu))} ${d2(ev[0].n)} en ${ev[0].pj} ${ev[0].pj === 1 ? 'partido' : 'partidos'}; ${esc(nombre(tit.iu))} ${ev[1] ? `${d2(ev[1].n)} en ${ev[1].pj}` : 'sin partidos aquí'}.<br>
+        Últimos partidos de ${esc(nombre(mejor.iu))}: ${esc(donde[0])}.<br>Últimos de ${esc(nombre(tit.iu))}: ${esc(donde[1])}.</p></div>`).join('')}</div>
       <div class="fila-btn"><button type="button" class="btn" data-tord="mejor">Aplicar ${props.length === 1 ? 'este cambio' : `estos ${props.length} cambios`} (Mejor opción)</button><span class="mini">Cambia esos titulares, ordena al resto de cada puesto por prioridad y te enseña el resumen para hacerlo en el juego.</span></div>`
-      : `<p class="mini">${fechas.length > N_SOSTENIDO ? `Nada que cambiar en tu once.` : `Aún hay pocos partidos oficiales esta temporada para hablar de tendencias.`} Solo se propone un cambio de titular cuando otro va claramente por delante en ese puesto (${d2(MARGEN)} de prioridad o más) y ya iba por delante antes de los ${N_SOSTENIDO} últimos partidos: un partido suelto no basta.</p>`;
-    return `<h4>¿Cambiar algún titular?</h4>${propsHtml}
+      : `<p class="mini">${fechas.length > N_SOSTENIDO ? `Nada que cambiar en tu once.` : `Aún hay pocos partidos oficiales esta temporada para hablar de tendencias.`} Solo se propone un cambio de titular cuando otro va claramente por delante en ese puesto (${d2(MARGEN)} de prioridad o más), ya iba por delante antes de los ${N_SOSTENIDO} últimos partidos (un partido suelto no basta) y ha jugado al menos 2 partidos en ese puesto según FM, rindiendo ahí como tu titular o mejor.</p>`;
+    // los cambios de orden entre los suplentes de cada puesto no son cambios de titular: se dicen aparte
+    const orden = t.slots.map(x => {
+      const resto = x.opciones.slice(1);
+      if (resto.length < 2) return null;
+      // igual que «Mejor opción»: los cedidos al final (no pueden jugar)
+      const ced = new Set(D.plantilla.filter(q => q.cedido_a).map(q => q.iu)), k = o => (ced.has(o.iu) ? -1e5 : 0) + prioridad(o, x.code, R, ref).total;
+      const ya = resto.map(o => o.iu).join(), nuevo = [...resto].sort((a, b) => k(b) - k(a));
+      if (nuevo.map(o => o.iu).join() === ya) return null;
+      const sube = nuevo.find((o, k) => resto.indexOf(o) > k);
+      return sube ? `${x.rol ? esc(x.rol) : corto(x.code)}: ${esc(nombre(sube.iu))} subiría a ${nuevo.indexOf(sube) + 2}.ª opción` : null;
+    }).filter(Boolean);
+    const ordenHtml = `<p class="mini">Aquí solo salen cambios de <b>titular</b>. ${orden.length ? `El orden de los suplentes también cambiaría con «Mejor opción» en ${orden.length} ${orden.length === 1 ? 'puesto' : 'puestos'}: ${orden.join(' · ')}.` : 'El orden de los suplentes de cada puesto ya va por prioridad.'}</p>`;
+    return `<h4>¿Cambiar algún titular?</h4>${propsHtml}${ordenHtml}
       <h4>${titulo}</h4>
       <p class="sub" style="margin:0 0 8px">Dónde jugó cada uno y cuánto le mueve el partido en ese puesto. Lo que hace en un puesto cuenta entero solo para ese puesto (a medias si no se sabe dónde jugó y un cuarto para sus otros puestos), así que un partidazo de extremo no le pone primero de delantero. Tu orden no se toca.</p>
       ${jugaron.length ? `<div class="tw"><table class="tvis"><thead><tr><th>Jugador</th><th>Dónde jugó</th><th class="n">Min</th><th class="n">Nota</th><th>Efecto en ese puesto</th></tr></thead><tbody>${jugaron.map(filaJ).join('')}</tbody></table></div>` : ''}
@@ -577,8 +601,8 @@ const TAC = (() => {
     const pa = (D.partidos || []).find(x => x.fecha === fu);
     const rival = pa ? (pa.en_casa ? pa.visitante : pa.local) : '';
     const marcador = pa ? (pa.en_casa ? `${pa.goles_local}-${pa.goles_visitante}` : `${pa.goles_visitante}-${pa.goles_local}`) : '';
-    const props = t.slots.some(x => x.opciones.length) ? cambiosSostenidos(R, ref).map(({x, tit, mejor, ahora}) =>
-      ({puesto: x.rol || corto(x.code), entra: nombre(mejor.iu), sale: nombre(tit.iu), ahora})) : null;
+    const props = t.slots.some(x => x.opciones.length) ? cambiosSostenidos(R, ref).map(({x, tit, mejor, ahora, donde}) =>
+      ({puesto: x.rol || corto(x.code), entra: nombre(mejor.iu), sale: nombre(tit.iu), ahora, donde})) : null;
     const jugaron = (D.partido_jugador || []).filter(f => f.fecha === fu && f.tipo !== 'amistosos' && !f.varios && f.partidos)
       .sort((a, b) => (b.titular || 0) - (a.titular || 0) || (b.minutos || 0) - (a.minutos || 0))
       .map(f => { const dj = dondeJugo(fu, f.iu) || {}, code = puestoDe(fu, f.iu, f.titular);

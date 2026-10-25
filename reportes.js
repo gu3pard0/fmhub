@@ -1,8 +1,9 @@
 // FM Hub · Reportar un error: pulsas «Reportar», tocas lo que está mal en la página y escribes qué debería poner.
 // El reporte lleva lo que se ve, dónde está (sección, apartado, fila), en qué parte del código se pinta y la
 // versión de los datos, y se abre como issue en el repositorio del programa (fmhubapp, privado) o se copia, para que
-// Claude busque la causa en el código en vez de cambiar solo el número. En la web local, además, se apunta en
-// data/reportes.jsonl (api/reportes). Los enviados se recuerdan en este navegador.
+// Claude busque la causa en el código en vez de cambiar solo el número. «Enviar» se lo pasa a FM Hub (api/reportes),
+// que lo apunta en data/reportes.jsonl y abre el issue solo con la clave de GitHub; desde la web publicada, también
+// si FM Hub está abierto en este PC. Si no se puede, enlace a GitHub con el reporte relleno. Los enviados se recuerdan en este navegador.
 // Usa las utilidades de app.js (D, IDX, esc, fecha, leer, apuntar, versionActual, PARTIDA, ficha). Se carga después.
 'use strict';
 
@@ -104,14 +105,14 @@ const REP = (() => {
       <label>Por qué lo sabes o qué más ves raro <span class="mini">(opcional)</span><textarea name="por" rows="2" placeholder="p. ej. «en FM, en el historial de traspasos, sale así»"></textarea></label>
       <p class="mini">Se manda con la sección, la fila, la parte del código que lo pinta (${esc(c.codigo)}) y la versión de los datos, para que se arregle la causa y no solo el número.</p>
       <p class="rep-err mini" hidden>Escribe qué debería poner.</p>
-      <div class="fila-btn"><button class="btn" type="submit" value="github">Enviar a GitHub</button><button class="btn sec" type="submit" value="copiar">Copiar texto</button><button class="btn sec" type="button" data-repx>Cancelar</button></div>
+      <div class="fila-btn"><button class="btn" type="submit" value="github">Enviar</button><button class="btn sec" type="submit" value="copiar">Copiar texto</button><button class="btn sec" type="button" data-repx>Cancelar</button></div>
       ${enviados.length ? `<details class="cant"><summary>Enviados desde este navegador · ${enviados.length}</summary><ul class="rep-lista">${enviados.slice(-10).reverse().map(r => `<li><time>${esc(new Date(r.cuando).toLocaleString('es-ES', {dateStyle: 'short', timeStyle: 'short'}))}</time> ${esc(r.titulo)}</li>`).join('')}</ul></details>` : ''}
     </form>`;
     document.body.appendChild(d);
     document.body.style.overflow = 'hidden';
     d.querySelector('[name=deberia]').focus();
     d.addEventListener('click', ev => { if (ev.target === d || ev.target.closest('[data-repx]')) cerrar(); });
-    d.querySelector('form').addEventListener('submit', ev => {
+    d.querySelector('form').addEventListener('submit', async ev => {
       ev.preventDefault();
       const f = ev.target, como = ev.submitter?.value || 'github';
       const r = {...c, pone: f.pone.value.trim(), deberia: f.deberia.value.trim(), por: f.por.value.trim()};
@@ -119,18 +120,33 @@ const REP = (() => {
       const titulo = corta(`Reporte: ${r.seccion}${r.apartado ? ' · ' + r.apartado : ''} — «${r.pone || '…'}» debería ser «${r.deberia}»`, 140);
       const cuerpo = cuerpoIssue(r);
       apuntar('fmhub-reportes', [...enviados, {cuando: new Date().toISOString(), titulo}].slice(-50));
-      // web local: también se guarda en el PC (data/reportes.jsonl), aunque no se llegue a enviar el issue
-      if (!window.FMHUB_PUBLICADO && !window.FMHUB_ESTATICO)
-        fetch('api/reportes', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({titulo, ...r, version: versionActual(), partida: PARTIDA.id})}).catch(() => {});
+      // a FM Hub: lo apunta en el PC (data/reportes.jsonl) y, con «Enviar», abre el issue en GitHub solo. Desde la web
+      // publicada también, si FM Hub está abierto en este PC; si no se puede, se abre GitHub con el reporte relleno
+      const destino = window.FMHUB_ESTATICO ? null : window.FMHUB_PUBLICADO ? 'http://127.0.0.1:8765/api/reportes' : 'api/reportes';
+      const mandar = enviar => destino ? fetch(destino, {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({titulo, cuerpo, enviar, ...r, version: versionActual(), partida: PARTIDA.id}), signal: AbortSignal.timeout?.(40000)}).then(x => x.json()) : Promise.reject(new Error('sin FM Hub'));
       if (como === 'copiar') {
+        if (!window.FMHUB_PUBLICADO) mandar(false).catch(() => {});
         const listo = () => { cerrar(); aviso('Reporte copiado: pégalo en tu conversación con Claude.'); };
         (navigator.clipboard?.writeText(`${titulo}\n\n${cuerpo}`) || Promise.reject()).then(listo, () => { f.pone.value = `${titulo}\n\n${cuerpo}`; f.pone.select(); aviso('No se pudo copiar solo: el texto está seleccionado arriba.'); });
         return;
       }
       const url = `${REPO}/issues/new?labels=reporte&title=${encodeURIComponent(titulo)}&body=${encodeURIComponent(corta(cuerpo, 6000))}`;
-      window.open(url, '_blank', 'noopener');
+      if (!destino) {   // copia autocontenida: sin FM Hub detrás, como siempre
+        window.open(url, '_blank', 'noopener');
+        cerrar();
+        return aviso('Se abre GitHub con el reporte relleno: dale a «Submit new issue».');
+      }
+      const boton = ev.submitter; if (boton) { boton.disabled = true; boton.textContent = 'Enviando…'; }
+      let res = null;
+      try { res = await mandar(true); } catch (e) { res = {error: window.FMHUB_PUBLICADO ? 'FM Hub no está abierto en este PC' : 'sin respuesta de FM Hub'}; }
       cerrar();
-      aviso('Se abre GitHub con el reporte relleno: dale a «Submit new issue».');
+      if (res?.issue) {
+        const n = res.issue.split('/').pop();
+        barra(`Reporte enviado: <a href="${esc(res.issue)}" target="_blank" rel="noopener">issue #${esc(n)}</a>. Ya no hace falta nada más. <button type="button" class="chip" data-repfin>Vale</button>`);
+      } else {
+        barra(`No se pudo enviar solo (${esc(res?.error || 'error')}). <a href="${esc(url)}" target="_blank" rel="noopener">Abrir en GitHub con el reporte relleno</a> y dale a «Submit new issue». <button type="button" class="chip" data-repfin>Vale</button>`);
+      }
     });
   }
   function cerrar() { document.getElementById('rep-dlg')?.remove(); if (document.getElementById('modal')?.hidden !== false) document.body.style.overflow = ''; }

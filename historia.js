@@ -285,7 +285,24 @@ const HIST = (() => {
       ${hv.length ? `<div class="card" style="margin-top:14px"><h4 style="margin-top:0">Primera vuelta frente a segunda vuelta (puntos por partido)</h4>
         ${grafPares(hv.map(x => x.v.map(q => q.n ? Math.round(q.pts / q.n * 100) / 100 : 0)), hv.map(x => sh(x.s.t)), ['var(--bar)', 'var(--gold)'], ['1.ª vuelta', '2.ª vuelta'], 3, d2)}
         <p class="sub" style="margin:8px 0 0;font-size:13px">${hv.map(x => `${x.s.t}: ${x.v[0].pts} → ${x.v[1].pts} pts`).join(' · ')}.</p></div>` : ''}
+      ${premios()}
     </div></section>`;
+  }
+  // premios: «jugador del partido» (MVP) de cada temporada, de la tabla de carrera de FM y, la temporada en curso, de la
+  // plantilla. Los premios del mes y del año (jugador, mánager) aún no los lee FM Hub: tools/diagnostico_premios.py
+  function premios() {
+    const ss = S().filter(s => s.sq.some(p => p.mvp));
+    if (!ss.length) return '';
+    const total = {};
+    for (const s of ss) for (const p of s.sq) if (p.mvp) (total[p.iu] ||= {iu: p.iu, n: p.n, mvp: 0}).mvp += p.mvp;
+    const top = Object.values(total).sort((a, b) => b.mvp - a.mvp).slice(0, 5);
+    return `<div class="card" style="margin-top:14px"><h4 style="margin-top:0">Premios · jugador del partido (MVP)</h4>
+      <ul class="facts" style="grid-template-columns:1fr">${[...ss].reverse().map(s => {
+        const l = s.sq.filter(p => p.mvp).sort((a, b) => b.mvp - a.mvp).slice(0, 3);
+        return `<li><b>${s.t}</b>${s.completa ? '' : ' (en curso)'}: ${l.map(p => `${jug(p.iu, p.n)} ${p.mvp}`).join(' · ')}</li>`;
+      }).join('')}</ul>
+      <p class="sub" style="margin:8px 0 0;font-size:13px">Más veces jugador del partido con el club: ${top.map(p => `${jug(p.iu, p.n)} (${p.mvp})`).join(' · ')}.</p>
+      <p class="mini" style="margin:6px 0 0">Jugador y mánager del mes y del año: FM Hub aún no los lee del juego.</p></div>`;
   }
 
   // ---------------------------------------------------------------- 02 · Temporada a temporada
