@@ -143,6 +143,22 @@ function preparar() {
   for (const e of D.exportacion) IDX.export[e.iu] = J(e.detalle);
   IDX.atr = {};
   for (const a of D.atributos) (IDX.atr[a.iu] ||= []).push({fecha: a.fecha_real, origen: a.origen, v: J(a.atributos)});
+  // temporadas «con el club» de antes de que llegara (fichado o libre, no cantera): FM Hub a veces copia su carrera con
+  // el id de nuestro club en las filas de su club anterior. Si no salió en ningún partido nuestro de esa temporada ni
+  // se había ido antes del club, eran de otro club: se quitan del club (club desconocido)
+  const tempDeF = f => { const a = +f.slice(0, 4), m = +f.slice(5, 7), i = m >= 7 ? a : a - 1; return `${i}/${String(i + 1).slice(2)}`; };
+  const llegada = {}, seFue = {}, jugoEn = {};
+  for (const t of IDX.traspasos) if (t.iu) {
+    if (t.entra && (!llegada[t.iu] || t.fecha < llegada[t.iu])) llegada[t.iu] = t.fecha;
+    if (!t.entra && (!seFue[t.iu] || t.fecha < seFue[t.iu])) seFue[t.iu] = t.fecha;
+  }
+  for (const r of [...(D.partido_informe || []), ...D.partido_jugador]) if (r.iu && r.fecha) (jugoEn[r.iu] ||= new Set()).add(tempDeF(r.fecha));
+  IDX.ajenas = 0;
+  for (const h of D.historial) {
+    const l = llegada[h.iu];
+    if (h.club !== club || !l || h.temporada >= tempDeF(l) || (seFue[h.iu] && seFue[h.iu] < l) || jugoEn[h.iu]?.has(h.temporada)) continue;
+    h.club = null; h.club_id = null; h.ajena = true; IDX.ajenas++;
+  }
   IDX.historial = {};
   for (const h of D.historial) (IDX.historial[h.iu] ||= []).push(h);
   IDX.pj = {};
@@ -602,13 +618,13 @@ V.jugador = iu => {
   for (const h of IDX.historial[iu] || []) {
     if (soloDart && h.club !== IDX.club) continue;
     const k = h.temporada + '|' + h.orden;
-    if (!vistas[k]) { vistas[k] = {temporada: h.temporada, orden: h.orden, club: h.club, info: h.info, division: h.division, origen: h.origen}; filasC.push(vistas[k]); }
+    if (!vistas[k]) { vistas[k] = {temporada: h.temporada, orden: h.orden, club: h.club, ajena: h.ajena, info: h.info, division: h.division, origen: h.origen}; filasC.push(vistas[k]); }
     vistas[k][h.tipo] = h;
   }
   // sin la línea de esa competición en una temporada leída de memoria (con otras líneas): no jugó, 0
   const c = (r, t, campo) => r[t] ? (r[t][campo] ?? '–') : r.origen === 'memoria' && (r.total || r.liga || r.copa) ? 0 : '–';
   const det = (r, t, campo) => r[t] ? (J(r[t].detalle)[campo] ?? '–') : r.origen === 'memoria' && (r.total || r.copa) ? 0 : '–';
-  const tablaC = filasC.length ? tabla('jc' + iu, [{k: 'temporada', t: 'Temporada'}, {k: 'club', t: 'Club', h: r => esc(r.club) + (r.info ? ` <span class="pill">${esc(r.info)}</span>` : '')},
+  const tablaC = filasC.length ? tabla('jc' + iu, [{k: 'temporada', t: 'Temporada'}, {k: 'club', t: 'Club', h: r => (r.ajena ? '<span class="mini">otro club (antes de llegar)</span>' : esc(r.club)) + (r.info ? ` <span class="pill">${esc(r.info)}</span>` : '')},
     {k: 'lp', t: 'PJ liga', n: 1, v: r => r.liga?.partidos, h: r => c(r, 'liga', 'partidos')},
     ...(portero ? [{k: 'le', t: 'Encajados liga', n: 1, v: r => J(r.liga?.detalle).goles_encajados, h: r => det(r, 'liga', 'goles_encajados')},
                    {k: 'lc', t: 'Porterías a cero liga', n: 1, v: r => J(r.liga?.detalle).porterias_a_cero, h: r => det(r, 'liga', 'porterias_a_cero')}]

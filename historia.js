@@ -686,17 +686,17 @@ const HIST = (() => {
     const frac = act.completa || act === prev ? 1 : Math.max(.05, Math.min(1, ofic(act) / Math.max(1, ofic(prev))));
     const porTemp = ss.map(s => { const o = {}; for (const p of s.sq) o[p.iu] = p; return o; });
     const rendDe = iu => {
-      let sn = 0, sw = 0, sm = 0, swm = 0, pj = 0, g = 0;
+      let sn = 0, sw = 0, sm = 0, swm = 0, pj = 0, g = 0, temps = 0;
       const det = [];
       for (let i = ss.length - 1; i >= 0; i--) {
         const p = porTemp[i][iu];
         if (!p) continue;
         const w = .6 ** (ss.length - 1 - i), f = i === ss.length - 1 ? frac : 1;
-        sm += w * (p.min || 0); swm += w * f; pj += p.pj || 0;
+        sm += w * (p.min || 0); swm += w * f; pj += p.pj || 0; temps++;
         if (p.avg && p.min) { sn += w * p.min * p.avg; sw += w * p.min; }
         if (p.pj && det.length < 3) { det.push(`${sh(ss[i].t)}: ${d2(p.avg)} en ${p.pj}`); g += p.g || 0; }
       }
-      return {nota: sw ? sn / sw : 0, min: swm ? Math.round(sm / swm) : 0, pj, g, det: det.join(' · ')};
+      return {nota: sw ? sn / sw : 0, min: swm ? Math.round(sm / swm) : 0, pj, g, temps, det: det.join(' · ')};
     };
     const fj = IDX.fechaJuego ? new Date(IDX.fechaJuego) : new Date();
     const finDe = c => { if (!c) return null; const m = c.match(/(\d{4})-(\d{2})-(\d{2})/) || c.match(/(\d+)\/(\d+)\/(\d{4})/); if (!m) return null; return m[0].includes('-') ? new Date(c.slice(0, 10)) : new Date(+m[3], +m[2] - 1, +m[1]); };
@@ -706,7 +706,7 @@ const HIST = (() => {
       // para el plan, quien también puede jugar de delantero centro (DL) cuenta como delantero
       const pos = x.posicion || '', gr = /\bDL\b/.test(pos) && !/^(POR|DF)/.test(pos) ? 'DEL' : grupoPos(pos), fin = finDe(p.fin_contrato);
       const r = rendDe(p.iu);
-      return {iu: p.iu, n: p.nombre, pos, gr, edad: edad(p.fecha_nacimiento), min: r.min, pj: r.pj, nota: r.nota, det: r.det, avgPrev: q.avg || 0, avgAct: st.nota_media || 0, g: r.g,
+      return {iu: p.iu, n: p.nombre, pos, gr, edad: edad(p.fecha_nacimiento), min: r.min, pj: r.pj, nota: r.nota, det: r.det, temps: r.temps, pjAct: st.partidos || 0, avgPrev: q.avg || 0, avgAct: st.nota_media || 0, g: r.g,
               sueldo: p.sueldo_mes_eur || 0, contrato: p.fin_contrato, fin, valor: x.valor, val: valorEur(x.valor),
               pase: gr === 'POR' ? null : m(['Pas', 'Ctr', 'Téc', 'Dec', 'Vis', 'JEq']), pres: gr === 'POR' ? null : m(['Agr', 'Ant', 'Sac', 'Res', 'Det', 'JEq']), rit: gr === 'POR' ? null : m(['Ace', 'Vel'])};
     });
@@ -714,7 +714,9 @@ const HIST = (() => {
     const mSueldo = med(filas.map(f => f.sueldo)), mNota = med(filas.filter(f => f.pj >= 10).map(f => f.nota)), mMin = med(filas.map(f => f.min));
     const unAño = new Date(fj); unAño.setFullYear(unAño.getFullYear() + 1);
     for (const f of filas) {
-      f.tag = f.sueldo >= mSueldo * 1.4 && f.pj >= 10 && f.nota && f.nota < mNota ? 'sale'
+      // nunca se propone vender en su primera temporada en el club ni si esta temporada rinde por encima de la mediana
+      const respeta = f.temps <= 1 || (f.pjAct >= 8 && f.avgAct >= mNota);
+      f.tag = !respeta && f.sueldo >= mSueldo * 1.4 && f.pj >= 10 && f.nota && f.nota < mNota ? 'sale'
         : f.fin && f.fin <= unAño ? 'dec'
         : f.pj >= 3 && f.nota >= mNota + .15 && f.min < mMin ? 'min'
         : f.gr === 'DEF' && f.rit !== null && f.rit <= 8.5 ? 'rev' : 'core';
@@ -750,7 +752,7 @@ const HIST = (() => {
       <p class="sub">Primero quién podría irse, después qué perfiles hacen falta y a quién dar más minutos. Lo calcula FM Hub con números y atributos visibles (rendimiento de todas las temporadas con el club, pesando más la actual y la pasada; sueldos, contratos y valor). No ve lesiones, moral ni tu táctica, así que la decisión final es tuya. Los fichajes concretos los buscas tú: aquí solo van perfiles.</p>
       <div class="card"><h4 style="margin:0 0 6px;color:var(--ink);font:800 17px Archivo;text-transform:none;letter-spacing:0">Cómo se mide</h4><ul style="margin:6px 0 0;padding-left:18px;font-size:13.5px">
         <li><b>Pase</b> = media de pase, control, técnica, decisiones, visión y trabajo en equipo. <b>Presión</b> = agresividad, anticipación, sacrificio, resistencia, determinación y trabajo en equipo. <b>Ritmo</b> = aceleración y velocidad.</li>
-        <li><b>Salida:</b> cobra al menos 1,4 veces la mediana (${eur(mSueldo)}) y rinde por debajo de la mediana del equipo (${d2(mNota)}). <b>Contrato:</b> acaba en menos de un año. <b>Más minutos:</b> rinde por encima de la mediana y juega menos que la mayoría. <b>Revisar:</b> defensa con ritmo de 8,5 o menos.</li>
+        <li><b>Salida:</b> cobra al menos 1,4 veces la mediana (${eur(mSueldo)}) y rinde por debajo de la mediana del equipo (${d2(mNota)}). Nunca en su primera temporada en el club ni si esta temporada (con 8 partidos o más) rinde por encima de la mediana. <b>Contrato:</b> acaba en menos de un año. <b>Más minutos:</b> rinde por encima de la mediana y juega menos que la mayoría. <b>Revisar:</b> defensa con ritmo de 8,5 o menos.</li>
         <li><b>Media:</b> la de todas sus temporadas en el club, cada una según sus minutos; cada temporada hacia atrás pesa un 40 % menos, y la que está en curso cuenta según lo jugado. <b>Minutos</b> por temporada con ese mismo peso (la actual, a ritmo de temporada completa).</li></ul></div>
       <h4>1 · Quiénes podrían irse</h4><div class="pgrid">${sells.join('') || '<p class="vacio">Nadie cumple los criterios de salida.</p>'}</div>
       <h4>2 · A quién renovarías</h4>${renov}
