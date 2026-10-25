@@ -52,7 +52,7 @@ const TAC = (() => {
     const porJug = {};
     for (const f of D.partido_jugador || [])
       if (f.temporada === IDX.temporadaActual && f.tipo !== 'amistosos' && !f.varios && f.nota && f.fecha && !sin?.fechas.has(f.fecha))
-        (porJug[f.iu] ||= []).push({fecha: f.fecha, nota: f.nota, min: f.minutos || 0, tit: !!f.titular, code: puestoDe(f.fecha, f.iu, f.titular)});
+        (porJug[f.iu] ||= []).push({fecha: f.fecha, nota: f.nota, min: f.minutos || 0, tit: !!f.titular, code: puestoDe(f.fecha, f.iu, f.titular), fiable: fiable(f.fecha, f.iu)});
     for (const l of Object.values(porJug)) l.sort((a, b) => b.fecha < a.fecha ? -1 : 1);
     const ss = HIST.S(), prev = [...ss].reverse().find(s => s.completa && s.t !== IDX.temporadaActual);
     const pq = {}; for (const p of prev?.sq || []) pq[p.iu] = p;
@@ -121,10 +121,12 @@ const TAC = (() => {
     if (dondeJugo.d !== D) { dondeJugo.d = D; dondeJugo.v = {}; for (const f of D.partido_posicion || []) dondeJugo.v[f.fecha + '|' + f.iu] = f; }
     return dondeJugo.v[fecha + '|' + iu];
   }
+  // puesto confirmado por FM (el informe del partido o el once leído del juego), no deducido por FM Hub
+  const fiable = (fecha, iu) => ['informe de FM', 'FM'].includes(dondeJugo(fecha, iu)?.fuente);
   const puestoDe = (fecha, iu, titular) => D.partido_posicion ? dondeJugo(fecha, iu)?.puesto || undefined : titular ? puestoEn(fecha, iu) : undefined;
   // rendimiento en este puesto: partidos de 45 minutos o más jugados aquí (de titular o heredando el puesto)
-  function enPuesto(r, iu, code) {
-    const l = (r.partidos || []).filter(x => x.min >= 45 && x.code === code);
+  function enPuesto(r, iu, code, soloFiable = false) {
+    const l = (r.partidos || []).filter(x => x.min >= 45 && x.code === code && (!soloFiable || x.fiable));
     return l.length ? {n: l.reduce((a, x) => a + x.nota, 0) / l.length, pj: l.length} : null;
   }
   // estrellas por puesto (las que le pondría FM Hub): lo que pide cada puesto de los atributos de FM (pesos de 1 a 3),
@@ -180,8 +182,8 @@ const TAC = (() => {
   }
   const K_PUESTO = 3;   // partidos «de su media» frente a los que lleva en un puesto (cuánto pesa lo de ese puesto)
   // todo lo que ha jugado en un puesto (45 minutos o más): esta temporada y las anteriores (partidos capturados)
-  function evidencia(r, code) {
-    const ep = enPuesto(r, null, code), ec = (r.carrera || {})[code];
+  function evidencia(r, code, soloFiable = false) {
+    const ep = enPuesto(r, null, code, soloFiable), ec = (r.carrera || {})[code];
     const pj = (ep?.pj || 0) + (ec?.pj || 0);
     return pj ? {pj, n: ((ep ? ep.n * ep.pj : 0) + (ec ? ec.n * ec.pj : 0)) / pj} : null;
   }
@@ -199,9 +201,11 @@ const TAC = (() => {
       if (p.cedido_a) continue;
       const r = R[p.iu] || {}, propia = mediaPropia(r), pos = posDe(p.iu);
       if (!propia) continue;
-      const codes = new Set([...(r.partidos || []).map(x => x.code), ...Object.keys(r.carrera || {})].filter(Boolean));
+      // solo puestos confirmados por FM (informe del partido u once leído): uno deducido puede estar mal (un cambio tras
+      // una roja), y no se propone probar a nadie por un puesto que no jugó
+      const codes = new Set([...(r.partidos || []).filter(x => x.fiable).map(x => x.code), ...Object.keys(r.carrera || {})].filter(Boolean));
       for (const code of codes) {
-        const ev = evidencia(r, code);
+        const ev = evidencia(r, code, true);
         if (ev && !pos.has(code) && ev.pj <= 2 && ev.n >= propia + .5) out.push({iu: p.iu, code, n: ev.n, pj: ev.pj, propia});
       }
     }
@@ -582,7 +586,7 @@ const TAC = (() => {
                 entra: dj.fuente === 'heredada' || (!f.titular && dj.entra) ? dj.entra : null, min: f.minutos || 0, nota: f.nota}; });
     const brillaron = (D.partido_jugador || []).filter(f => f.fecha === fu && f.tipo !== 'amistosos' && !f.varios && f.partidos && f.nota && (f.minutos || 0) >= 45)
       .map(f => ({f, code: puestoDe(fu, f.iu, f.titular), propia: mediaPropia(R[f.iu] || {})}))
-      .filter(x => x.code && x.propia && !posDe(x.f.iu).has(x.code) && x.f.nota >= x.propia + .5)
+      .filter(x => x.code && fiable(fu, x.f.iu) && x.propia && !posDe(x.f.iu).has(x.code) && x.f.nota >= x.propia + .5)
       .map(x => ({nombre: nombre(x.f.iu), puesto: corto(x.code), nota: x.f.nota, propia: x.propia}));
     return {fecha: fu, titulo: `${marcador} ${pa ? (pa.en_casa ? 'ante el ' : 'en casa del ') + rival : ''}`.trim(), props, jugaron, brillaron, pocos: fechas.length <= N_SOSTENIDO};
   }
