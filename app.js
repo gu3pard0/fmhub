@@ -110,7 +110,10 @@ function preparar() {
   const ultimoPartido = D.partidos.length ? D.partidos[D.partidos.length - 1].fecha : null;
   const limite = ultimoPartido ? new Date(new Date(ultimoPartido).getTime() + 120 * 864e5).toISOString().slice(0, 10) : '9999';
   D.traspasos = D.traspasos.filter(t => t.fecha <= limite);
-  IDX.traspasos = D.traspasos.filter(t => t.tipo !== 'cantera');
+  // a prueba (llegó y se fue en pocos días sin jugar): ni fichaje ni salida
+  IDX.traspasos = D.traspasos.filter(t => t.tipo !== 'cantera' && t.tipo !== 'prueba');
+  IDX.pruebas = {};
+  for (const t of D.traspasos) if (t.tipo === 'prueba') (IDX.pruebas[t.iu] ||= []).push(t.fecha);
   IDX.cantera = D.traspasos.filter(t => t.tipo === 'cantera');
   IDX.golesPorPartido = {};
   for (const g of D.goles) (IDX.golesPorPartido[g.fecha + '|' + g.local + '|' + g.visitante] ||= []).push(g);
@@ -577,7 +580,7 @@ V.jugador = iu => {
   const hist = IDX.atr[iu] || [];
   const ultimo = hist.length ? hist[hist.length - 1].v : J(p?.atributos);
   const primero = hist.length ? hist[0].v : ultimo;
-  const portero = (x.posicion || '').startsWith('POR');
+  const portero = [x.posicion, p?.posicion].some(v => /^POR/.test(v || ''));
   const grupos = portero ? [['Portero', POR], ['Mentales', MENT], ['Físicos', FIS]] : [['Técnicos', TECN], ['Mentales', MENT], ['Físicos', FIS]];
   const color = v => v >= 15 ? 'var(--w)' : v >= 10 ? 'var(--gold)' : v >= 6 ? 'var(--d)' : 'var(--l)';
   const atr = Object.keys(ultimo || {}).length ? `<div class="attrg">${grupos.map(([t, ks]) => `<div><h5>${t}</h5>${ks.filter(k => ultimo[k] !== undefined).map(k => {
@@ -586,8 +589,12 @@ V.jugador = iu => {
     }).join('')}</div>`).join('')}</div>
     <p class="mini">Progreso desde la primera lectura (${hist.length ? fecha(hist[0].fecha.slice(0, 10)) : '–'}), con ${hist.length} cambios registrados entre capturas de memoria y exportaciones.</p>` : '<p class="vacio">Sin atributos guardados (solo de jugadores de la plantilla).</p>';
   const tipos = ['amistosos', 'liga', 'copa', 'continental', 'internacional', 'total'];
+  // un portero: goles encajados y porterías a cero en vez de goles y asistencias
+  const golA = portero ? [{k: 'enc', t: 'Encajados', n: 1, v: r => J(r.detalle).goles_encajados, h: r => J(r.detalle).goles_encajados ?? '–'},
+                          {k: 'pac', t: 'Porterías a cero', n: 1, v: r => J(r.detalle).porterias_a_cero, h: r => J(r.detalle).porterias_a_cero ?? '–'}]
+                       : [{k: 'goles', t: 'Gol', n: 1}, {k: 'asistencias', t: 'Asis', n: 1}];
   const temporada = Object.keys(s).length ? tabla('jt' + iu, [{k: 'tipo', t: 'Competición'}, {k: 'partidos', t: 'PJ', n: 1}, {k: 'titular', t: 'Tit', n: 1},
-    {k: 'minutos', t: 'Min', n: 1}, {k: 'goles', t: 'Gol', n: 1}, {k: 'asistencias', t: 'Asis', n: 1}, {k: 'amarillas', t: 'Am', n: 1}, {k: 'rojas', t: 'Roj', n: 1},
+    {k: 'minutos', t: 'Min', n: 1}, ...golA, {k: 'amarillas', t: 'Am', n: 1}, {k: 'rojas', t: 'Roj', n: 1},
     {k: 'nota_media', t: 'Nota', n: 1, h: r => r.nota_media ? r.nota_media.toFixed(2) : '–'}, {k: 'xg', t: 'xG', n: 1, h: r => J(r.detalle).xg ?? '–'}],
     tipos.filter(t => s[t]).map(t => s[t])) : '<p class="vacio">Sin estadísticas de esta temporada.</p>';
   const vistas = {}, filasC = [];
@@ -598,10 +605,14 @@ V.jugador = iu => {
     if (!vistas[k]) { vistas[k] = {temporada: h.temporada, orden: h.orden, club: h.club, info: h.info, division: h.division, origen: h.origen}; filasC.push(vistas[k]); }
     vistas[k][h.tipo] = h;
   }
-  const c = (r, t, campo) => r[t] ? (r[t][campo] ?? '–') : '–';
+  // sin la línea de esa competición en una temporada leída de memoria (con otras líneas): no jugó, 0
+  const c = (r, t, campo) => r[t] ? (r[t][campo] ?? '–') : r.origen === 'memoria' && (r.total || r.liga || r.copa) ? 0 : '–';
+  const det = (r, t, campo) => r[t] ? (J(r[t].detalle)[campo] ?? '–') : r.origen === 'memoria' && (r.total || r.copa) ? 0 : '–';
   const tablaC = filasC.length ? tabla('jc' + iu, [{k: 'temporada', t: 'Temporada'}, {k: 'club', t: 'Club', h: r => esc(r.club) + (r.info ? ` <span class="pill">${esc(r.info)}</span>` : '')},
-    {k: 'lp', t: 'PJ liga', n: 1, v: r => r.liga?.partidos, h: r => c(r, 'liga', 'partidos')}, {k: 'lg', t: 'Gol liga', n: 1, v: r => r.liga?.goles, h: r => c(r, 'liga', 'goles')},
-    {k: 'la', t: 'Asis liga', n: 1, h: r => c(r, 'liga', 'asistencias')}, {k: 'ln', t: 'Nota', n: 1, h: r => r.liga?.nota_media ? Number(r.liga.nota_media).toFixed(2) : '–'},
+    {k: 'lp', t: 'PJ liga', n: 1, v: r => r.liga?.partidos, h: r => c(r, 'liga', 'partidos')},
+    ...(portero ? [{k: 'le', t: 'Encajados liga', n: 1, v: r => J(r.liga?.detalle).goles_encajados, h: r => det(r, 'liga', 'goles_encajados')},
+                   {k: 'lc', t: 'Porterías a cero liga', n: 1, v: r => J(r.liga?.detalle).porterias_a_cero, h: r => det(r, 'liga', 'porterias_a_cero')}]
+                : [{k: 'lg', t: 'Gol liga', n: 1, v: r => r.liga?.goles, h: r => c(r, 'liga', 'goles')}, {k: 'la', t: 'Asis liga', n: 1, h: r => c(r, 'liga', 'asistencias')}]), {k: 'ln', t: 'Nota', n: 1, h: r => r.liga?.nota_media ? Number(r.liga.nota_media).toFixed(2) : '–'},
     {k: 'cp', t: 'PJ copa', n: 1, h: r => c(r, 'copa', 'partidos')}, {k: 'tp', t: 'PJ total', n: 1, h: r => c(r, 'total', 'partidos')},
     {k: 'tm', t: 'Min total', n: 1, h: r => num(r.total?.minutos)}, {k: 'origen', t: 'Fuente', h: r => `<span class="origen">${r.origen === 'memoria' ? 'detalle completo' : 'liga (pantalla)'}</span>`}],
     filasC, {k: 'temporada', d: -1}) : (IDX.historial[iu] || []).length ? '<p class="vacio">Sin etapas con ese filtro.</p>'
@@ -628,7 +639,7 @@ V.jugador = iu => {
     <h4>Partido a partido</h4>${partidosJ}
     <h4>Carrera</h4>
     <div class="filters"><button class="chip" data-jc="1" aria-pressed="${soloDart}">Solo con el ${esc(IDX.club)}</button></div>
-    ${filasC.length ? `<p class="meta">${(() => { const t = filasC.reduce((a, r) => { const h = r.total || r.liga; if (h) { a.pj += h.partidos || 0; a.g += h.goles || 0; a.as += h.asistencias || 0; a.min += h.minutos || 0; } return a; }, {pj: 0, g: 0, as: 0, min: 0}); return `<span><b>${filasC.length}</b> etapas</span><span><b>${num(t.pj)}</b> PJ</span><span><b>${num(t.g)}</b> goles</span><span><b>${num(t.as)}</b> asistencias</span><span><b>${num(t.min)}</b> min</span><span>${soloDart ? 'con el ' + esc(IDX.club) : 'en toda su carrera'} (oficiales, o liga si FM no da más)</span>`; })()}</p>` : ''}
+    ${filasC.length ? `<p class="meta">${(() => { const t = filasC.reduce((a, r) => { const h = r.total || r.liga; if (h) { a.pj += h.partidos || 0; a.g += h.goles || 0; a.as += h.asistencias || 0; a.min += h.minutos || 0; const dd = J(h.detalle); a.enc += dd.goles_encajados || 0; a.pac += dd.porterias_a_cero || 0; } return a; }, {pj: 0, g: 0, as: 0, min: 0, enc: 0, pac: 0}); return `<span><b>${filasC.length}</b> etapas</span><span><b>${num(t.pj)}</b> PJ</span>${portero ? `<span><b>${num(t.pac)}</b> porterías a cero</span><span><b>${num(t.enc)}</b> encajados</span>` : `<span><b>${num(t.g)}</b> goles</span><span><b>${num(t.as)}</b> asistencias</span>`}<span><b>${num(t.min)}</b> min</span><span>${soloDart ? 'con el ' + esc(IDX.club) : 'en toda su carrera'} (oficiales, o liga si FM no da más)</span>`; })()}</p>` : ''}
     ${tablaC}
   </div></section>`;
 };
@@ -742,7 +753,7 @@ function ficha(iu) {
   const p = D.plantilla.find(x => x.iu === +iu), x = IDX.export[iu] || {};
   const temps = HIST.S().filter(s => s.sq.some(q => q.iu === +iu && q.pj)).length;
   $('#mT').textContent = p?.nombre || IDX.nombres[iu] || 'Jugador';
-  $('#mS').textContent = [x.nacionalidad, x.posicion, temps ? temps + (temps === 1 ? ' temporada en el club' : ' temporadas en el club') : '', HIST.cantera().has(+iu) ? 'Cantera' : '', p ? 'En la plantilla actual' : 'Exjugador'].filter(Boolean).join(' · ');
+  $('#mS').textContent = [x.nacionalidad, x.posicion, temps ? temps + (temps === 1 ? ' temporada en el club' : ' temporadas en el club') : '', HIST.cantera().has(+iu) ? 'Cantera' : '', IDX.pruebas[iu] && !p ? 'Estuvo a prueba (no fichó)' : p ? 'En la plantilla actual' : 'Exjugador'].filter(Boolean).join(' · ');
   $('#mB').innerHTML = V.jugador(iu);
   if ($('#modal').hidden) { ficha.foco = document.activeElement; $('#modal').hidden = false; document.body.style.overflow = 'hidden'; $('#modal').scrollTop = 0; $('#mX').focus(); }
 }

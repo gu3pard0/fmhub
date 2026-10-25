@@ -85,6 +85,8 @@ const HIST = (() => {
     const out = [];
     const ius = new Set([...Object.keys(filas).map(Number), ...Object.keys(fichas).map(Number)]);
     for (const iu of ius) {
+      // a prueba esa temporada y nunca fichó: no fue de la plantilla
+      if ((IDX.pruebas || {})[iu]?.some(f => tempDe(f) === t) && !IDX.traspasos.some(x => x.iu === iu && x.entra && tempDe(x.fecha) === t)) continue;
       const h = filas[iu]?.total || filas[iu]?.liga || {};
       const f = fichas[iu] || {};
       const x = (t === IDX.temporadaActual ? IDX.export[iu] : null) || {};
@@ -92,7 +94,7 @@ const HIST = (() => {
       const pos = f.pos || x.posicion || (D.plantilla.find(p => p.iu === iu) ? (IDX.export[iu] || {}).posicion : null) || '';
       out.push({iu, n: h.jugador || f.nombre || IDX.nombres[iu] || '¿?', pos, gr: grupoPos(pos), edad: f.edad, nac: f.nac, dorsal: f.dorsal,
                 pj: h.partidos || 0, tit: h.titular || 0, sb: h.suplente || 0, g: h.goles || 0, a: h.asistencias || 0, avg: h.nota_media || 0,
-                min: h.minutos || 0, yc: h.amarillas || 0, rc: h.rojas || 0, mvp: h.mvp || 0, cs: det.porterias_a_cero ?? det.imbatidas ?? 0,
+                min: h.minutos || 0, yc: h.amarillas || 0, rc: h.rojas || 0, mvp: h.mvp || 0, cs: det.porterias_a_cero ?? det.imbatidas ?? 0, ga: det.goles_encajados ?? null,
                 sueldo: f.sueldo, contrato: f.contrato, valor: f.valor, xg: f.xg, atr: J(f.atributos), altura: f.altura, peso: f.peso});
     }
     return out;
@@ -800,8 +802,12 @@ const HIST = (() => {
   function trayectoria(iu) {
     const ent = S().map(s => ({s, p: s.sq.find(p => p.iu === iu)})).filter(x => x.p && (x.p.pj || x.p.sueldo));
     if (!ent.length) return '';
-    const t = ent.reduce((o, {p}) => ({pj: o.pj + p.pj, g: o.g + p.g, a: o.a + p.a, min: o.min + p.min, yc: o.yc + p.yc, rc: o.rc + p.rc, sa: o.sa + (p.avg ? p.avg * p.pj : 0), sw: o.sw + (p.avg ? p.pj : 0)}), {pj: 0, g: 0, a: 0, min: 0, yc: 0, rc: 0, sa: 0, sw: 0});
-    const mx = Math.max(1, ...ent.map(e => Math.max(e.p.g, e.p.a)));
+    const t = ent.reduce((o, {p}) => ({pj: o.pj + p.pj, g: o.g + p.g, a: o.a + p.a, min: o.min + p.min, yc: o.yc + p.yc, rc: o.rc + p.rc, sa: o.sa + (p.avg ? p.avg * p.pj : 0), sw: o.sw + (p.avg ? p.pj : 0),
+      cs: o.cs + (p.cs || 0), ga: o.ga + (p.ga || 0)}), {pj: 0, g: 0, a: 0, min: 0, yc: 0, rc: 0, sa: 0, sw: 0, cs: 0, ga: 0});
+    // un portero: porterías a cero y goles encajados en vez de goles y asistencias (siempre a cero)
+    const portero = ent.some(e => e.p.gr === 'POR') || [(IDX.export[iu] || {}).posicion, (D.plantilla.find(q => q.iu === iu) || {}).posicion].some(v => /^POR/.test(v || ''));
+    const vA = p => portero ? p.cs || 0 : p.g, vB = p => portero ? p.ga || 0 : p.a;
+    const mx = Math.max(1, ...ent.map(e => Math.max(vA(e.p), vB(e.p))));
     const f = [];
     const best = ent.filter(e => e.p.avg && e.p.pj >= 10).sort((a, b) => b.p.avg - a.p.avg)[0]; if (best) f.push(`Mejor media: <b>${d2(best.p.avg)}</b> en ${best.s.t} (${best.p.pj} partidos)`);
     const bg = [...ent].sort((a, b) => b.p.g - a.p.g)[0]; if (bg?.p.g) f.push(`Más goles en una temporada: <b>${bg.p.g}</b> en ${bg.s.t}`);
@@ -819,13 +825,17 @@ const HIST = (() => {
       const rv = {}; for (const x of gl) rv[x.p.rival] = (rv[x.p.rival] || 0) + 1;
       const tr = Object.entries(rv).sort((a, b) => b[1] - a[1])[0]; if (tr[1] >= 2) f.push(`Rival al que más ha marcado: <b>${esc(tr[0])}</b> (${tr[1]} goles)`);
     }
-    for (const x of D.traspasos.filter(t => t.iu === iu)) f.push(x.tipo === 'cantera' ? `Subió de la cantera el <b>${fecha(x.fecha)}</b>` : x.entra ? `Llegó el <b>${fecha(x.fecha)}</b> ${x.otro_club ? 'desde ' + esc(x.otro_club) : '(libre)'}${x.precio_eur ? ' · ' + kEur(x.precio_eur) : ''}` : `Salió el <b>${fecha(x.fecha)}</b> a ${esc(x.otro_club || '¿?')}${x.cesion ? ' (cesión)' : x.precio_eur ? ' · ' + kEur(x.precio_eur) : ''}`);
+    const pr = D.traspasos.filter(t => t.iu === iu && t.tipo === 'prueba');
+    if (pr.length) f.push(`Estuvo a prueba del <b>${fecha(pr[0].fecha)}</b> al <b>${fecha(pr[pr.length - 1].fecha)}</b> (no fichó)`);
+    for (const x of D.traspasos.filter(t => t.iu === iu && t.tipo !== 'prueba')) f.push(x.tipo === 'cantera' ? `Subió de la cantera el <b>${fecha(x.fecha)}</b>` : x.entra ? `Llegó el <b>${fecha(x.fecha)}</b> ${x.otro_club ? 'desde ' + esc(x.otro_club) : '(libre)'}${x.precio_eur ? ' · ' + kEur(x.precio_eur) : ''}` : `Salió el <b>${fecha(x.fecha)}</b> a ${esc(x.otro_club || '¿?')}${x.cesion ? ' (cesión)' : x.precio_eur ? ' · ' + kEur(x.precio_eur) : ''}`);
     return `<div class="prof"><h5>Trayectoria en el ${esc(IDX.club)} · ${ent.map(e => sh(e.s.t)).join(' · ')}</h5><div class="pk">
-      <div><b>${ent.length}</b><span>${ent.length === 1 ? 'temporada' : 'temporadas'} en el club</span></div><div><b>${t.pj}</b><span>partidos</span></div><div><b>${t.g}</b><span>goles</span></div><div><b>${t.a}</b><span>asistencias</span></div>
-      <div><b>${t.sw ? d2(t.sa / t.sw) : '—'}</b><span>media ponderada</span></div><div><b>${num(t.min)}</b><span>minutos</span></div><div><b>${t.pj ? d2(t.g / t.pj) : '—'}</b><span>goles por partido</span></div><div><b>${t.yc}·${t.rc}</b><span>amarillas · rojas</span></div></div>
-      <h5>Goles y asistencias por temporada</h5><div class="sb">${ent.map(e => `<div class="c"><span>${e.p.g}·${e.p.a}</span><div style="display:flex;align-items:flex-end;gap:3px;width:100%;justify-content:center;height:60px"><i style="width:40%;max-width:18px;background:var(--gold);border-radius:3px 3px 0 0;height:${e.p.g / mx * 100}%;min-height:2px"></i><i style="width:40%;max-width:18px;background:var(--bar);opacity:.7;border-radius:3px 3px 0 0;height:${e.p.a / mx * 100}%;min-height:2px"></i></div><span>${sh(e.s.t)}</span></div>`).join('')}</div>
-      <div class="legend"><span><b style="background:var(--gold)"></b>Goles</span><span><b style="background:var(--bar);opacity:.7"></b>Asistencias</span></div>
-      <h5>Temporada a temporada</h5><div class="pt-w"><table class="pt"><thead><tr><th>Temp.</th><th>Posición</th><th class="n">Edad</th><th class="n">PJ</th><th class="n">G</th><th class="n">A</th><th class="n">Media</th><th class="n">Min</th><th class="n">Am/Ro</th><th class="n">€/mes</th><th>Contrato</th><th>Valor</th></tr></thead><tbody>${ent.map(({s, p}) => `<tr><td><b>${sh(s.t)}</b></td><td class="cmp">${esc(p.pos || '—')}</td><td class="n">${p.edad || '—'}</td><td class="n">${p.pj}${p.sb ? ` (${p.sb})` : ''}</td><td class="n">${p.g}</td><td class="n">${p.a || '—'}</td><td class="n">${p.avg ? d2(p.avg) : '—'}</td><td class="n">${p.min ? miles(p.min) : '—'}</td><td class="n">${p.yc || p.rc ? p.yc + '/' + p.rc : '—'}</td><td class="n">${p.sueldo ? miles(p.sueldo) : '—'}</td><td class="cmp">${esc(p.contrato || '—')}</td><td class="cmp">${esc(p.valor || '—')}</td></tr>`).join('')}</tbody></table></div>
+      <div><b>${ent.length}</b><span>${ent.length === 1 ? 'temporada' : 'temporadas'} en el club</span></div><div><b>${t.pj}</b><span>partidos</span></div>
+      ${portero ? `<div><b>${t.cs}</b><span>porterías a cero</span></div><div><b>${t.ga}</b><span>goles encajados</span></div>` : `<div><b>${t.g}</b><span>goles</span></div><div><b>${t.a}</b><span>asistencias</span></div>`}
+      <div><b>${t.sw ? d2(t.sa / t.sw) : '—'}</b><span>media ponderada</span></div><div><b>${num(t.min)}</b><span>minutos</span></div>
+      ${portero ? `<div><b>${t.pj ? d2(t.ga / t.pj) : '—'}</b><span>encajados por partido</span></div>` : `<div><b>${t.pj ? d2(t.g / t.pj) : '—'}</b><span>goles por partido</span></div>`}<div><b>${t.yc}·${t.rc}</b><span>amarillas · rojas</span></div></div>
+      <h5>${portero ? 'Porterías a cero y goles encajados' : 'Goles y asistencias'} por temporada</h5><div class="sb">${ent.map(e => `<div class="c"><span>${vA(e.p)}·${vB(e.p)}</span><div style="display:flex;align-items:flex-end;gap:3px;width:100%;justify-content:center;height:60px"><i style="width:40%;max-width:18px;background:var(--gold);border-radius:3px 3px 0 0;height:${vA(e.p) / mx * 100}%;min-height:2px"></i><i style="width:40%;max-width:18px;background:var(--bar);opacity:.7;border-radius:3px 3px 0 0;height:${vB(e.p) / mx * 100}%;min-height:2px"></i></div><span>${sh(e.s.t)}</span></div>`).join('')}</div>
+      <div class="legend"><span><b style="background:var(--gold)"></b>${portero ? 'Porterías a cero' : 'Goles'}</span><span><b style="background:var(--bar);opacity:.7"></b>${portero ? 'Encajados' : 'Asistencias'}</span></div>
+      <h5>Temporada a temporada</h5><div class="pt-w"><table class="pt"><thead><tr><th>Temp.</th><th>Posición</th><th class="n">Edad</th><th class="n">PJ</th><th class="n">${portero ? 'PaC' : 'G'}</th><th class="n">${portero ? 'Enc' : 'A'}</th><th class="n">Media</th><th class="n">Min</th><th class="n">Am/Ro</th><th class="n">€/mes</th><th>Contrato</th><th>Valor</th></tr></thead><tbody>${ent.map(({s, p}) => `<tr><td><b>${sh(s.t)}</b></td><td class="cmp">${esc(p.pos || '—')}</td><td class="n">${p.edad || '—'}</td><td class="n">${p.pj}${p.sb ? ` (${p.sb})` : ''}</td><td class="n">${vA(p)}</td><td class="n">${portero ? (p.ga ?? '—') : p.a || '—'}</td><td class="n">${p.avg ? d2(p.avg) : '—'}</td><td class="n">${p.min ? miles(p.min) : '—'}</td><td class="n">${p.yc || p.rc ? p.yc + '/' + p.rc : '—'}</td><td class="n">${p.sueldo ? miles(p.sueldo) : '—'}</td><td class="cmp">${esc(p.contrato || '—')}</td><td class="cmp">${esc(p.valor || '—')}</td></tr>`).join('')}</tbody></table></div>
       ${f.length ? `<h5>Datos interesantes</h5><ul class="facts">${f.map(x => `<li>${x}</li>`).join('')}</ul>` : ''}</div>`;
   }
 
