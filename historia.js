@@ -558,6 +558,8 @@ const HIST = (() => {
       <p class="sub">La línea del tiempo del club bajo Varela y los récords, calculados con todos los partidos, plantillas y traspasos guardados.</p>
       <div class="cols2"><div class="card"><h4 style="margin-top:0">Línea del tiempo</h4><div class="tl">${ev.map(([f, t]) => `<div class="it"><div class="dt">${fecha(f)}</div><div class="tx">${esc(t)}</div></div>`).join('')}</div></div>
       <div><div class="card"><h4 style="margin-top:0">Récords del club</h4>${R.map(r => `<div class="tri" style="grid-template-columns:1fr auto"><span>${esc(r[0])}</span><span class="f">${esc(r[1])}</span></div>`).join('')}</div>
+      ${(D.premios || []).length ? `<div class="card" style="margin-top:14px"><h4 style="margin-top:0">Premios</h4>${[...D.premios].sort((a, b) => (b.periodo || '').localeCompare(a.periodo || '')).map(p => premioHtml(p, true)).join('')}
+        <p class="mini">Del mánager y de los jugadores: FM Hub los lee de las noticias del juego (los de antes de usarlo, solo si la noticia sigue en el juego). Cada premio, con los partidos de ese mes.</p></div>` : ''}
       ${mejorOnce()}</div></div></div></section>`;
   }
   function mejorOnce() {
