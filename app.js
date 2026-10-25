@@ -213,7 +213,7 @@ function grupoPos(pos) {
 }
 function golesTexto(p) {
   const gs = (IDX.golesPorPartido[p.clave] || []).filter(g => (g.lado === 0) === p.casa && g.tipo !== 3);
-  return gs.map(g => `${esc(g.jugador || '¿?')} ${g.minuto}'${g.anadido ? '+' + g.anadido : ''}${g.tipo === 2 ? ' (p)' : g.tipo === 1 ? ' (pp)' : ''}`).join(', ');
+  return gs.map(g => `${g.iu && g.tipo !== 1 ? jug(g.iu, g.jugador) : esc(g.jugador || '¿?')} ${g.minuto}'${g.anadido ? '+' + g.anadido : ''}${g.tipo === 2 ? ' (p)' : g.tipo === 1 ? ' (pp)' : ''}`).join(', ');
 }
 
 // ---------------------------------------------------------------- tablas ordenables
