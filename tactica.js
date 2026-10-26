@@ -300,6 +300,8 @@ const TAC = (() => {
   // ---------------------------------------------------------------- estado y guardado
   function nueva(f) { return {formacion: f, slots: FORMACIONES[f].map(([code], i) => ({code, rol: (ROLES[f] || [])[i] || '', opciones: []}))}; }
   function cargarTactica() {
+    // si se cambió fuera de la web (la pastilla aplicó un cambio), se vuelve a cargar la guardada
+    if (t && LOCAL && D.tactica?.actualizado && D.tactica.actualizado > (t.actualizado || '') && !temporizador) t = null;
     if (t) return;
     let guardada = D.tactica;
     if (!LOCAL) { try { const l = JSON.parse(localStorage.getItem(clavePartida('fmhub-tactica')) || 'null'); if (l) guardada = l; } catch (e) {} }
@@ -330,8 +332,10 @@ const TAC = (() => {
         if (!r.ok) throw new Error(await r.text());
         const j = await r.json();
         D.tactica = {...t, actualizado: j.actualizado};
+        t.actualizado = j.actualizado;
         estadoGuardado = `Guardada a las ${new Date(j.actualizado).toLocaleTimeString('es-ES', {hour: '2-digit', minute: '2-digit'})}`;
       } catch (e) { estadoGuardado = 'No se pudo guardar: ' + e.message; }
+      temporizador = null;
       marcarEstado();
     }, 500);
   }
@@ -592,6 +596,31 @@ const TAC = (() => {
 
   // lo mismo que «¿Cambiar algún titular?» y «Tras el último partido», resumido para la pastilla de FM Hub en directo
   // (vivo.js): {fecha, titulo, props: [{puesto, entra, sale, ahora}], jugaron: [{iu, nombre, donde, min, nota}]} o null
+  // todos los cambios que haría «Mejor opción», uno a uno (para marcarlos como aplicados desde la pastilla): el de
+  // titular si hay un cambio sostenido y los de orden entre las demás opciones de cada puesto (los cedidos, al final)
+  function cambiosPendientes(R, ref) {
+    const nombre = iu => (D.plantilla.find(p => p.iu === iu) || {}).nombre || IDX.nombres[iu] || '¿?';
+    const ced = new Set(D.plantilla.filter(q => q.cedido_a).map(q => q.iu));
+    const sost = {};
+    for (const pr of cambiosSostenidos(R, ref)) sost[pr.i] = pr;
+    const out = [];
+    t.slots.forEach((x, i) => {
+      if (x.opciones.length < 2) return;
+      const puesto = x.rol || corto(x.code), k = o => (ced.has(o.iu) ? -1e5 : 0) + prioridad(o, x.code, R, ref).total;
+      const pr = sost[i];
+      if (pr) out.push({slot: i, code: x.code, puesto, iu: pr.mejor.iu, nombre: nombre(pr.mejor.iu), de: x.opciones.indexOf(pr.mejor) + 1, a: 1, titular: true,
+                        texto: `${nombre(pr.mejor.iu)} pasa a titular por delante de ${nombre(pr.tit.iu)}`, donde: pr.donde?.[0]});
+      const tit = pr ? pr.mejor : x.opciones[0];
+      const resto = x.opciones.filter(o => o !== tit), nuevo = [...resto].sort((a, b) => k(b) - k(a));
+      nuevo.forEach((o, j) => {
+        const antes = x.opciones.indexOf(o) + 1, ahora = j + 2;
+        if (ahora < antes && !(pr && o === pr.tit)) out.push({slot: i, code: x.code, puesto, iu: o.iu, nombre: nombre(o.iu), de: antes, a: ahora, titular: false,
+                                                               texto: `${nombre(o.iu)} sube de ${antes}.ª a ${ahora}.ª opción`});
+      });
+    });
+    return out;
+  }
+
   function avisoUltimo() {
     cargarTactica();
     const fechas = fechasOficiales();
@@ -612,7 +641,9 @@ const TAC = (() => {
       .map(f => ({f, code: puestoDe(fu, f.iu, f.titular), propia: mediaPropia(R[f.iu] || {})}))
       .filter(x => x.code && fiable(fu, x.f.iu) && x.propia && !posDe(x.f.iu).has(x.code) && x.f.nota >= x.propia + .5)
       .map(x => ({nombre: nombre(x.f.iu), puesto: corto(x.code), nota: x.f.nota, propia: x.propia}));
-    return {fecha: fu, titulo: `${marcador} ${pa ? (pa.en_casa ? 'ante el ' : 'en casa del ') + rival : ''}`.trim(), props, jugaron, brillaron, pocos: fechas.length <= N_SOSTENIDO};
+    const cambios = t.slots.some(x => x.opciones.length) ? cambiosPendientes(R, ref) : [];
+    return {fecha: fu, titulo: `${marcador} ${pa ? (pa.en_casa ? 'ante el ' : 'en casa del ') + rival : ''}`.trim(), props, cambios, jugaron, brillaron, pocos: fechas.length <= N_SOSTENIDO,
+            tactica: D.tactica?.actualizado || null};
   }
 
   // ---------------------------------------------------------------- tabla de un vistazo: qué hacer con cada jugador

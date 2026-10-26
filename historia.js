@@ -458,6 +458,46 @@ const HIST = (() => {
   }
 
   // ---------------------------------------------------------------- 06 · Hitos y récords + mejor once
+  // el próximo partido, para la pastilla de encima de FM: rival, cara a cara, curiosidades con ese rival y lo que va
+  // «en rumbo» (récords al alcance, jugadores a punto de llegar a 50/100/150… partidos o 25/50/75… goles con el club)
+  function proximo() {
+    const hoy = (IDX.fechaJuego || '').slice(0, 10);
+    const px = (D.proximos || []).filter(p => p.fecha >= hoy).sort((a, b) => a.fecha.localeCompare(b.fecha))[0];
+    const rumbo = enRumbo();
+    if (!px) return rumbo.length ? {rumbo} : null;
+    const vs = IDX.partidos.filter(p => p.rival === px.rival && p.oficial).sort((a, b) => b.fecha.localeCompare(a.fecha));
+    const b = wdl(vs);
+    let curi = [];
+    try { curi = (typeof curiosidades === 'function' ? curiosidades() : []).filter(c => (c.hecho || "").includes(px.rival)).slice(0, 3).map(c => `${c.n}. ${c.hecho}`); } catch (e) {}
+    return {rival: px.rival, fecha: px.fecha, competicion: px.competicion, casa: !!px.en_casa, estadio: px.estadio,
+            balance: {w: b.w, d: b.d, l: b.l, gf: vs.reduce((a, p) => a + p.gf, 0), gc: vs.reduce((a, p) => a + p.gc, 0)},
+            ultimos: vs.slice(0, 5).map(p => ({fecha: p.fecha, res: r90(p), marcador: `${p.gf}-${p.gc}`, casa: p.casa, competicion: p.competicion})),
+            curiosidades: curi, rumbo};
+  }
+  function enRumbo() {
+    const out = [];
+    // récords de liga que FM dice que estáis a punto de batir (noticias)
+    for (const n of (D.records_noticias || []).slice(-4).reverse()) out.push(n.texto);
+    // récords del club al alcance esta temporada (a este ritmo en liga)
+    const ss = S(), s = ss[ss.length - 1];
+    if (s?.lg && !s.completa && s.lg.j >= 10) {
+      const otras = ss.filter(x => x !== s && x.lg && x.completa);
+      for (const [que, v, mejor] of [['puntos', s.lg.pts, otras.reduce((m, x) => x.lg.pts > (m?.lg.pts || 0) ? x : m, null)],
+                                      ['goles', s.lg.gf, otras.reduce((m, x) => x.lg.gf > (m?.lg.gf || 0) ? x : m, null)]]) {
+        if (!mejor) continue;
+        const rec = que === 'puntos' ? mejor.lg.pts : mejor.lg.gf, ritmo = Math.round(v / s.lg.j * s.regular);
+        if (ritmo >= rec * .95) out.push(`En liga lleváis ${v} ${que} en ${s.lg.j} partidos: a este ritmo, ${ritmo} al final. El récord del club es ${rec} (${mejor.t}).`);
+      }
+    }
+    // jugadores de la plantilla a punto de llegar a una cifra redonda con el club
+    for (const j of totalesClub()) {
+      if (!IDX.enPlantilla.has(j.iu)) continue;
+      const mp = Math.ceil((j.pj + 1) / 50) * 50, mg = Math.ceil((j.g + 1) / 25) * 25;
+      if (mp - j.pj <= 3) out.push(`${j.n}: ${j.pj} partidos con el club, a ${mp - j.pj} de los ${mp}.`);
+      if (j.g && mg - j.g <= 2) out.push(`${j.n}: ${j.g} goles con el club, a ${mg - j.g} de los ${mg}.`);
+    }
+    return out;
+  }
   function totalesClub() {
     const o = {};
     for (const h of D.historial) {
@@ -967,5 +1007,5 @@ const HIST = (() => {
     if (ev.target.id === 'rvQ' && ev.target.value) location.hash = 'rivales/' + encodeURIComponent(ev.target.value);
   });
 
-  return {S, ronda, titulos, entradilla, notas, viaje, temporadas, rivales, goles, hitos, rentabilidad, economia, plan, trayectoria, records, exportacion, escalera, bigsPalmares, cantera, enPlantilla};
+  return {S, proximo, ronda, titulos, entradilla, notas, viaje, temporadas, rivales, goles, hitos, rentabilidad, economia, plan, trayectoria, records, exportacion, escalera, bigsPalmares, cantera, enPlantilla};
 })();
