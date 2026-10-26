@@ -393,7 +393,9 @@ const HIST = (() => {
   // noticias de la temporada que FM Hub ha ido guardando: las de ★ con su texto (si se abrió en FM y se pulsó «Guardar» en la
   // pastilla) y el resto de titulares sobre el club, el mánager y los jugadores. En la web local: ★ y ocultar
   function noticiasTemporada(t) {
-    const ns = (D.noticias || []).filter(n => n.temporada === t);
+    // la fecha de la noticia si se dedujo (la del partido del que habla, #96); si no, el día en que FM Hub la vio
+    const ns = (D.noticias || []).filter(n => n.temporada === t).sort((a, b) => (a.fecha || a.visto).localeCompare(b.fecha || b.visto));
+    const cuando = n => n.fecha ? fecha(n.fecha) : `vista el ${fecha(n.visto)}`;
     if (!ns.length) return '';
     const local = !window.FMHUB_PUBLICADO && !window.FMHUB_ESTATICO;
     const tit = ns.filter(n => n.tipo === 'titular'), txt = ns.filter(n => n.tipo === 'texto');
@@ -411,11 +413,11 @@ const HIST = (() => {
     const resto = tit.filter(n => n.estado !== 'guardada');
     const tarjeta = n => { const cuerpo = n.tipo === 'texto' ? n : textoDe(n);
       return `<div class="card" style="margin-bottom:10px"><div style="display:flex;gap:10px;justify-content:space-between;align-items:start"><b>${n.tipo === 'texto' ? esc(n.texto.split(/(?<=[.!?])\s/)[0]) : conEnlaces(n, n.texto)}</b>${botones(n)}</div>
-        <div class="mini">Vista el ${fecha(n.visto)}</div>${cuerpo ? parrafos(cuerpo) : `<p class="mini" style="margin:6px 0 0">Solo el titular: si quieres el texto, ábrela en FM y pulsa «★ Guardar la noticia que tengo abierta» en la pastilla.</p>`}</div>`; };
+        <div class="mini">${cuando(n)}</div>${cuerpo ? parrafos(cuerpo) : `<p class="mini" style="margin:6px 0 0">Solo el titular: si quieres el texto, ábrela en FM y pulsa «★ Guardar la noticia que tengo abierta» en la pastilla.</p>`}</div>`; };
     return `<h4>Noticias · ${guardadas.length} guardadas · ${tit.length} titulares</h4>${guardadas.map(tarjeta).join('')}
       ${resto.length ? `<details class="cant"${guardadas.length ? '' : ' open'}><summary>${resto.length} ${resto.length === 1 ? 'titular' : 'titulares'} sobre el club, el mánager y los jugadores${local ? ' (☆ para guardarlo, ✕ para quitarlo)' : ''}</summary>
-        ${resto.slice().reverse().map(n => `<div class="tri" style="grid-template-columns:76px 1fr auto"><span class="mini">${fecha(n.visto)}</span><span>${conEnlaces(n, n.texto)}${textoDe(n) ? ' <span class="mini">(con texto)</span>' : ''}</span>${botones(n)}</div>`).join('')}</details>` : ''}
-      <p class="mini">FM Hub guarda solo los titulares de las noticias sobre el club, el mánager y los jugadores, con la fecha de juego en que las vio (FM solo tiene en memoria las recientes). El texto entero, el de las que guardas desde la pastilla con la noticia abierta.</p>`;
+        ${resto.slice().reverse().map(n => `<div class="tri" style="grid-template-columns:96px 1fr auto"><span class="mini">${cuando(n)}</span><span>${conEnlaces(n, n.texto)}${textoDe(n) ? ' <span class="mini">(con texto)</span>' : ''}</span>${botones(n)}</div>`).join('')}</details>` : ''}
+      <p class="mini">FM Hub guarda solo los titulares de las noticias sobre el club, el mánager y los jugadores (FM solo tiene en memoria las recientes). La fecha es la del partido del que hablan si se puede deducir; si no, el día en que FM Hub las vio. El texto entero, el de las que guardas desde la pastilla con la noticia abierta (con unas palabras de su titular, para que sea esa).</p>`;
   }
 
   // ---------------------------------------------------------------- 04 · Rivales
@@ -524,7 +526,9 @@ const HIST = (() => {
   function enRumbo() {
     const out = [];
     // récords de liga que FM dice que estáis a punto de batir (noticias)
-    for (const n of (D.records_noticias || []).slice(-4).reverse()) out.push(n.texto);
+    // (sin los que se guardaron cortados en un enlace o que eran «recordar»: #92, #93, #95)
+    const recordOk = t => /(^|[^a-záéíóúñ])r[ée]cords?([^a-záéíóúñ]|$)/i.test(t) && !/\b(en|de|del|la|el|al|con|ante|a)\s*$/i.test(t);
+    for (const n of (D.records_noticias || []).filter(n => recordOk(n.texto)).slice(-4).reverse()) out.push(n.texto);
     // récords del club al alcance esta temporada (a este ritmo en liga)
     const ss = S(), s = ss[ss.length - 1];
     // récords de la liga en la que estáis (Historial → Récords de FM): rachas de ahora y goles a este ritmo

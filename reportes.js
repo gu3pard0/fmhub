@@ -20,6 +20,8 @@ const REP = (() => {
   };
   // los issues van al repositorio con el código del programa (el de la web publicada solo recibe los datos)
   const REPO = 'https://github.com/gu3pard0/fmhubapp';
+  // a dónde se mandan: a FM Hub (la web local, o desde la publicada el de este PC); la copia autocontenida no tiene
+  const DESTINO = window.FMHUB_ESTATICO ? null : window.FMHUB_PUBLICADO ? 'http://127.0.0.1:8765/api/reportes' : 'api/reportes';
   const PIEZAS = 'td,th,li,.tri,.kpi,.big,.pod,.trofeo,.op,.slot,.it,.arow,.pc,.cur,p,h2,h3,h4,h5,h6,.pill,.tab,.chip,svg';
   let activo = false, marcado = null;
 
@@ -49,7 +51,7 @@ const REP = (() => {
   function empezar() {
     activo = true;
     document.body.classList.add('rep-modo');
-    barra(`Toca lo que está mal en la página · <button type="button" class="chip" data-repfin>Cancelar</button>`);
+    barra(`Toca lo que está mal en la página · <button type="button" class="chip" data-repgen>Es algo general</button> <button type="button" class="chip" data-repfin>Cancelar</button>`);
   }
   function terminar() {
     activo = false;
@@ -77,6 +79,12 @@ const REP = (() => {
   // en modo reporte el toque no abre enlaces ni pulsa botones: elige qué reportar
   document.addEventListener('click', ev => {
     if (ev.target.closest('[data-repfin]')) { terminar(); return; }
+    if (ev.target.closest('[data-repgen]')) {   // algo de toda la web o una idea, no de un sitio concreto (#97)
+      terminar();
+      dialogo({general: true, seccion: 'General (toda la web)', apartado: '', ruta: location.hash || '#inicio', fila: '', columna: '',
+               codigo: 'general: toda la web (app.js, historia.js, tactica.js, vivo.js…) o FM Hub', pone: ''});
+      return;
+    }
     if (!activo) return;
     const p = pieza(ev.target);
     if (!p) return;
@@ -100,8 +108,8 @@ const REP = (() => {
     d.innerHTML = `<form class="rep-c" novalidate>
       <h3 id="rep-t">Reportar un error</h3>
       <p class="mini">${esc(c.seccion)}${c.apartado ? ' · ' + esc(c.apartado) : ''}${c.columna ? ' · columna «' + esc(c.columna) + '»' : ''}</p>
-      <label>Lo que pone<textarea name="pone" rows="3">${esc(c.pone)}</textarea></label>
-      <label>Lo que debería poner<textarea name="deberia" rows="3" placeholder="p. ej. «194.586 €, vendido el 18 jul 2028»" required></textarea></label>
+      ${c.general ? '<input type="hidden" name="pone" value="">' : `<label>Lo que pone<textarea name="pone" rows="3">${esc(c.pone)}</textarea></label>`}
+      <label>${c.general ? 'Qué pasa o qué cambiarías' : 'Lo que debería poner'}<textarea name="deberia" rows="${c.general ? 5 : 3}" placeholder="${c.general ? 'p. ej. «tarda mucho en actualizarse» o «estaría bien poder…»' : 'p. ej. «194.586 €, vendido el 18 jul 2028»'}" required></textarea></label>
       <label>Por qué lo sabes o qué más ves raro <span class="mini">(opcional)</span><textarea name="por" rows="2" placeholder="p. ej. «en FM, en el historial de traspasos, sale así»"></textarea></label>
       <p class="mini">Se manda con la sección, la fila, la parte del código que lo pinta (${esc(c.codigo)}) y la versión de los datos, para que se arregle la causa y no solo el número.</p>
       <p class="rep-err mini" hidden>Escribe qué debería poner.</p>
@@ -117,14 +125,15 @@ const REP = (() => {
       const f = ev.target, como = ev.submitter?.value || 'github';
       const r = {...c, pone: f.pone.value.trim(), deberia: f.deberia.value.trim(), por: f.por.value.trim()};
       if (!r.deberia) { f.querySelector('.rep-err').hidden = false; f.deberia.focus(); return; }
-      const titulo = corta(`Reporte: ${r.seccion}${r.apartado ? ' · ' + r.apartado : ''} — «${r.pone || '…'}» debería ser «${r.deberia}»`, 140);
+      const titulo = corta(c.general ? `Reporte general: ${r.deberia}` : `Reporte: ${r.seccion}${r.apartado ? ' · ' + r.apartado : ''} — «${r.pone || '…'}» debería ser «${r.deberia}»`, 140);
       const cuerpo = cuerpoIssue(r);
       apuntar('fmhub-reportes', [...enviados, {cuando: new Date().toISOString(), titulo}].slice(-50));
       // a FM Hub: lo apunta en el PC (data/reportes.jsonl) y, con «Enviar», abre el issue en GitHub solo. Desde la web
       // publicada también, si FM Hub está abierto en este PC; si no se puede, se abre GitHub con el reporte relleno
-      const destino = window.FMHUB_ESTATICO ? null : window.FMHUB_PUBLICADO ? 'http://127.0.0.1:8765/api/reportes' : 'api/reportes';
+      const destino = DESTINO;
+      const datos = {titulo, cuerpo, ...r, version: versionActual(), partida: PARTIDA.id};
       const mandar = enviar => destino ? fetch(destino, {method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({titulo, cuerpo, enviar, ...r, version: versionActual(), partida: PARTIDA.id}), signal: AbortSignal.timeout?.(40000)}).then(x => x.json()) : Promise.reject(new Error('sin FM Hub'));
+        body: JSON.stringify({...datos, enviar}), signal: AbortSignal.timeout?.(40000)}).then(x => x.json()) : Promise.reject(new Error('sin FM Hub'));
       if (como === 'copiar') {
         if (!window.FMHUB_PUBLICADO) mandar(false).catch(() => {});
         const listo = () => { cerrar(); aviso('Reporte copiado: pégalo en tu conversación con Claude.'); };
@@ -139,9 +148,13 @@ const REP = (() => {
       }
       const boton = ev.submitter; if (boton) { boton.disabled = true; boton.textContent = 'Enviando…'; }
       let res = null;
-      try { res = await mandar(true); } catch (e) { res = {error: window.FMHUB_PUBLICADO ? 'FM Hub no está abierto en este PC' : 'sin respuesta de FM Hub'}; }
+      try { res = await mandar(true); } catch (e) { res = {error: window.FMHUB_PUBLICADO ? 'FM Hub no está abierto en este PC' : 'sin respuesta de FM Hub', sinFMHub: true}; }
       cerrar();
-      if (res?.issue) {
+      if (res?.sinFMHub) {
+        // sin FM Hub al alcance: se queda en este navegador y se manda solo en cuanto lo esté (#94)
+        apuntar('fmhub-rep-pendientes', [...(leer('fmhub-rep-pendientes', []) || []), {...datos, cuando: new Date().toISOString()}].slice(-30));
+        barra(`Reporte guardado en este navegador: se enviará solo en cuanto abras esta web con FM Hub abierto en este PC. Si lo quieres ya: <a href="${esc(url)}" target="_blank" rel="noopener">abrir en GitHub con el reporte relleno</a>. <button type="button" class="chip" data-repfin>Vale</button>`);
+      } else if (res?.issue) {
         const n = res.issue.split('/').pop();
         barra(`Reporte enviado: <a href="${esc(res.issue)}" target="_blank" rel="noopener">issue #${esc(n)}</a>. Ya no hace falta nada más. <button type="button" class="chip" data-repfin>Vale</button>`);
       } else {
@@ -156,8 +169,8 @@ const REP = (() => {
     const datos = D ? `datos.json del ${D.generado.replace('T', ' ').slice(0, 16)} · ${versionActual()} · ${IDX.temporadaActual}${IDX.fechaJuego ? ' (' + fecha(IDX.fechaJuego) + ' en el juego)' : ''}` : 'sin datos';
     return [
       `**Sección:** ${r.seccion} (\`${r.ruta}\`)${r.apartado ? ` · apartado «${r.apartado}»` : ''}${r.columna ? ` · columna «${r.columna}»` : ''}`,
-      `**Lo que pone:** ${r.pone || '(vacío)'}`,
-      `**Lo que debería poner:** ${r.deberia}`,
+      r.general ? '' : `**Lo que pone:** ${r.pone || '(vacío)'}`,
+      r.general ? `**Qué pasa o qué cambiaría:** ${r.deberia}` : `**Lo que debería poner:** ${r.deberia}`,
       r.por ? `**Por qué / más detalles:** ${r.por}` : '',
       r.fila && r.fila !== r.pone ? `**Fila completa:** ${r.fila}` : '',
       `**Dónde se pinta:** ${r.codigo}`,
@@ -166,6 +179,30 @@ const REP = (() => {
       '> Para Claude: no cambies solo este número. Busca en el código (y en cómo FM Hub lee o guarda ese dato) qué produce este texto, arregla la causa y comprueba que no pasa lo mismo en otras secciones.',
     ].filter(x => x !== '').join('\n\n');
   }
+
+  // los reportes que no se pudieron enviar (FM Hub cerrado, #94): en cuanto FM Hub responde desde este navegador, se mandan
+  let vaciando = false;
+  async function vaciarPendientes() {
+    const pend = leer('fmhub-rep-pendientes', []) || [];
+    if (!DESTINO || !pend.length || vaciando) return;
+    vaciando = true;
+    const quedan = [], hechos = [];
+    for (const p of pend) {
+      try {
+        const res = await fetch(DESTINO, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({...p, enviar: true}),
+                                          signal: AbortSignal.timeout?.(40000)}).then(x => x.json());
+        hechos.push(res.issue || null);   // FM Hub ya lo tiene (si GitHub falló, queda en su data/reportes.jsonl)
+      } catch (e) { quedan.push(p); }
+    }
+    apuntar('fmhub-rep-pendientes', quedan);
+    vaciando = false;
+    if (hechos.length) {
+      const enl = hechos.filter(Boolean).map(u => `<a href="${esc(u)}" target="_blank" rel="noopener">#${esc(u.split('/').pop())}</a>`).join(', ');
+      barra(`${hechos.length === 1 ? 'Enviado el reporte que estaba pendiente' : `Enviados ${hechos.length} reportes que estaban pendientes`}${enl ? ': ' + enl : ''}. <button type="button" class="chip" data-repfin>Vale</button>`);
+    }
+  }
+  setTimeout(vaciarPendientes, 3000);
+  setInterval(vaciarPendientes, 120000);
 
   // botón fijo (abajo a la izquierda: abajo a la derecha está la pastilla de FM Hub en directo)
   const b = document.createElement('button');
