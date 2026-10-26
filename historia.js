@@ -463,8 +463,8 @@ const HIST = (() => {
   function proximo() {
     const hoy = (IDX.fechaJuego || '').slice(0, 10);
     const px = (D.proximos || []).filter(p => p.fecha >= hoy).sort((a, b) => a.fecha.localeCompare(b.fecha))[0];
-    const rumbo = enRumbo();
-    if (!px) return rumbo.length ? {rumbo} : null;
+    const rumbo = enRumbo(), rec = recordsPendientes(), recordatorio = rec ? rec.texto : null;
+    if (!px) return rumbo.length || recordatorio ? {rumbo, recordatorio} : null;
     const vs = IDX.partidos.filter(p => p.rival === px.rival && p.oficial).sort((a, b) => b.fecha.localeCompare(a.fecha));
     const b = wdl(vs);
     let curi = [];
@@ -472,7 +472,25 @@ const HIST = (() => {
     return {rival: px.rival, fecha: px.fecha, competicion: px.competicion, casa: !!px.en_casa, estadio: px.estadio,
             balance: {w: b.w, d: b.d, l: b.l, gf: vs.reduce((a, p) => a + p.gf, 0), gc: vs.reduce((a, p) => a + p.gc, 0)},
             ultimos: vs.slice(0, 5).map(p => ({fecha: p.fecha, res: r90(p), marcador: `${p.gf}-${p.gc}`, casa: p.casa, competicion: p.competicion})),
-            curiosidades: curi, rumbo};
+            curiosidades: curi, rumbo, recordatorio};
+  }
+  // al acabar cada liga (y hasta pasadas las primeras jornadas de la siguiente): las ligas en las que habéis jugado cuya
+  // tabla de récords FM Hub no ha leído desde ese final. FM solo la tiene en memoria si se abre su pantalla.
+  function recordsPendientes() {
+    const ss = S().filter(s => s.liga && s.lgPs?.length);
+    let i = ss.length - 1;
+    while (i >= 0 && !ss[i].completa) i--;
+    if (i < 0 || (i < ss.length - 1 && ss[i + 1].lg && ss[i + 1].lg.j >= 5)) return null;
+    const fin = ss[i].lgPs.map(p => p.fecha).sort().pop();
+    const visto = {};
+    for (const r of D.records_liga || []) if (!visto[r.competicion] || r.visto > visto[r.competicion]) visto[r.competicion] = r.visto;
+    // se piden la liga recién acabada, la de ahora, las que nunca se han leído y aquellas en las que tenéis algún récord
+    // (para ver si os lo han batido); una liga antigua leída sin récords vuestros ya no se pide
+    const recientes = new Set([ss[i].liga, ss[ss.length - 1].liga]);
+    const nuestro = l => (D.records_liga || []).some(r => r.competicion === l && r.club === IDX.club);
+    const ligas = [...new Set(ss.map(s => s.liga))].filter(l => (!visto[l] || visto[l] < fin) && (recientes.has(l) || !visto[l] || nuestro(l)));
+    if (!ligas.length) return null;
+    return {ligas, fin, texto: `Fin de la ${ss[i].t}: abre en FM Competiciones → liga → Historial → Récords de ${ligas.map(LIGA_CORTA).join(', ')} para guardar sus récords.`};
   }
   function enRumbo() {
     const out = [];
@@ -480,6 +498,24 @@ const HIST = (() => {
     for (const n of (D.records_noticias || []).slice(-4).reverse()) out.push(n.texto);
     // récords del club al alcance esta temporada (a este ritmo en liga)
     const ss = S(), s = ss[ss.length - 1];
+    // récords de la liga en la que estáis (Historial → Récords de FM): rachas de ahora y goles a este ritmo
+    const rl = (D.records_liga || []).filter(r => r.competicion === s?.liga);
+    if (rl.length && s?.lgPs?.length) {
+      const lg = [...s.lgPs].sort((a, b) => a.fecha.localeCompare(b.fecha));
+      const racha = cond => { let n = 0; for (let i = lg.length - 1; i >= 0 && cond(lg[i]); i--) n++; return n; };
+      for (const [tipo, que, n] of [[0x15, 'victorias seguidas', racha(p => p.gf > p.gc)], [0x17, 'partidos seguidos sin perder', racha(p => p.gf >= p.gc)],
+                                     [0x19, 'partidos seguidos sin encajar', racha(p => p.gc === 0)]]) {
+        const r = rl.find(x => x.tipo === tipo);
+        if (r && n >= 3 && n >= r.valor - 3) out.push(n >= r.valor ? `¡${n} ${que} en liga: ${n > r.valor ? 'batís' : 'igualáis'} el récord de la ${s.liga} (${r.valor}, ${r.club})!`
+          : `Lleváis ${n} ${que} en liga: el récord de la ${s.liga} es ${r.valor} (${r.club}${r.temporada ? ', ' + r.temporada : ''}).`);
+      }
+      const rg = rl.find(x => x.tipo === 0x38);
+      if (rg && rg.temporada !== s.temporada && s.lg && !s.completa && s.lg.j >= 10) {   // si ya es de esta temporada, el récord sois vosotros
+        const ritmo = Math.round(s.lg.gf / s.lg.j * s.regular);
+        if (s.lg.gf > rg.valor) out.push(`¡${s.lg.gf} goles en liga: ya batís el récord de la ${s.liga} (${rg.valor}, ${rg.club}, ${rg.temporada})!`);
+        else if (ritmo >= rg.valor * .95) out.push(`Goles en liga: ${s.lg.gf} en ${s.lg.j} partidos, ${ritmo} a este ritmo. El récord de la ${s.liga} es ${rg.valor} (${rg.club}, ${rg.temporada}).`);
+      }
+    }
     if (s?.lg && !s.completa && s.lg.j >= 10) {
       const otras = ss.filter(x => x !== s && x.lg && x.completa);
       for (const [que, v, mejor] of [['puntos', s.lg.pts, otras.reduce((m, x) => x.lg.pts > (m?.lg.pts || 0) ? x : m, null)],
@@ -598,9 +634,37 @@ const HIST = (() => {
       <p class="sub">La línea del tiempo del club bajo Varela y los récords, calculados con todos los partidos, plantillas y traspasos guardados.</p>
       <div class="cols2"><div class="card"><h4 style="margin-top:0">Línea del tiempo</h4><div class="tl">${ev.map(([f, t]) => `<div class="it"><div class="dt">${fecha(f)}</div><div class="tx">${esc(t)}</div></div>`).join('')}</div></div>
       <div><div class="card"><h4 style="margin-top:0">Récords del club</h4>${R.map(r => `<div class="tri" style="grid-template-columns:1fr auto"><span>${esc(r[0])}</span><span class="f">${esc(r[1])}</span></div>`).join('')}</div>
+      ${recordsLigas()}
       ${(D.premios || []).length ? `<div class="card" style="margin-top:14px"><h4 style="margin-top:0">Premios</h4>${[...D.premios].sort((a, b) => (b.periodo || '').localeCompare(a.periodo || '')).map(p => premioHtml(p, true)).join('')}
         <p class="mini">Del mánager y de los jugadores: FM Hub los lee de las noticias del juego (los de antes de usarlo, solo si la noticia sigue en el juego). Cada premio, con los partidos de ese mes.</p></div>` : ''}
       ${mejorOnce()}</div></div></div></section>`;
+  }
+  // récords de cada liga (Historial → Récords de FM), con los del club marcados
+  function recordsLigas() {
+    const por = {};
+    for (const r of D.records_liga || []) (por[r.competicion] ||= []).push(r);
+    const ant = {};
+    for (const r of D.records_anteriores || []) (ant[r.competicion] ||= []).push(r);
+    for (const c of Object.keys(ant)) if (ant[c].some(r => r.club === IDX.club)) por[c] ||= [];
+    const comps = Object.keys(por), pend = recordsPendientes();
+    if (!comps.length && !pend) return '';
+    const cuando = r => r.temporada || (r.desde ? `del ${fecha(r.desde)} al ${fecha(r.hasta)}` : '');
+    // cuánto duró un récord: desde que se logró (fin de la racha o de la temporada) hasta la lectura en que ya no estaba
+    const logrado = r => r.hasta || (r.temporada ? `${+r.temporada.slice(0, 4) + 1}-05-31` : null);
+    const duracion = (a, b) => {
+      if (!a || !b) return '';
+      const m = Math.max(0, Math.round((new Date(b) - new Date(a)) / 2629800000));
+      return m >= 12 ? `${Math.floor(m / 12)} ${Math.floor(m / 12) === 1 ? 'año' : 'años'}` : `${m} ${m === 1 ? 'mes' : 'meses'}`;
+    };
+    const anterior = (c, r) => (ant[c] || []).filter(a => a.tipo === r.tipo && a.batido <= (r.visto || '9')).pop();
+    const batidos = c => (ant[c] || []).filter(a => a.club === IDX.club && !(por[c] || []).some(r => r.tipo === a.tipo && r.club === IDX.club))
+      .map(a => { const ahora = (por[c] || []).find(r => r.tipo === a.tipo);
+        return `<div class="tri" style="grid-template-columns:1fr auto;opacity:.8"><span>☆ ${esc(a.nombre)} <span class="mini">(anterior récord)</span></span><span class="f">${a.valor} · <b>${esc(a.club)}</b> <span class="mini">${esc(cuando(a))} · récord durante ${duracion(logrado(a), a.batido) || '—'}${ahora ? `, batido por ${esc(ahora.club)} (${ahora.valor})` : ''}</span></span></div>`; }).join('');
+    return `<div class="card" style="margin-top:14px"><h4 style="margin-top:0">Récords de las ligas</h4>${comps.map(c => {
+      const nuestros = por[c].filter(r => r.club === IDX.club).length, viejos = batidos(c);
+      return `<details class="cant"${nuestros || viejos ? ' open' : ''}><summary><b>${esc(c)}</b>${nuestros ? ` · ${nuestros} ${nuestros === 1 ? 'récord vuestro' : 'récords vuestros'}` : ''}${viejos ? ` · ${(viejos.match(/☆/g) || []).length} batido${(viejos.match(/☆/g) || []).length === 1 ? '' : 's'}` : ''}</summary>
+        ${por[c].map(r => `<div class="tri" style="grid-template-columns:1fr auto"><span>${r.club === IDX.club ? '★ ' : ''}${esc(r.nombre)}</span><span class="f">${r.valor} · ${r.club === IDX.club ? `<b>${esc(r.club)}</b>` : esc(r.club)} <span class="mini">${esc(cuando(r))}${r.solo_desde_2023 ? ' *' : ''}${(a => a ? ` · superó el de ${esc(a.club)} (${a.valor}), que duró ${duracion(logrado(a), a.batido) || '—'}` : '')(anterior(c, r))}</span></span></div>`).join('')}${viejos}</details>`;
+    }).join('')}${pend ? `<p class="sub" style="margin:8px 0 0;color:var(--gold)">⚑ ${esc(pend.texto)}</p>` : ''}<p class="mini">De la pantalla Historial → Récords de cada liga (FM Hub los lee cuando están en la memoria del juego: abre esa pantalla una vez por liga). * Solo vale desde el 3/7/2023.</p></div>`;
   }
   function mejorOnce() {
     const tc = totalesClub().filter(j => j.pj >= 30);
@@ -1007,5 +1071,5 @@ const HIST = (() => {
     if (ev.target.id === 'rvQ' && ev.target.value) location.hash = 'rivales/' + encodeURIComponent(ev.target.value);
   });
 
-  return {S, proximo, ronda, titulos, entradilla, notas, viaje, temporadas, rivales, goles, hitos, rentabilidad, economia, plan, trayectoria, records, exportacion, escalera, bigsPalmares, cantera, enPlantilla};
+  return {S, proximo, recordsPendientes, ronda, titulos, entradilla, notas, viaje, temporadas, rivales, goles, hitos, rentabilidad, economia, plan, trayectoria, records, exportacion, escalera, bigsPalmares, cantera, enPlantilla};
 })();
