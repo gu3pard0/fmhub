@@ -203,6 +203,17 @@ function preparar() {
     const orden = Object.entries(meses).filter(([k, m]) => m.n >= 2 && !ya.has(k)).sort((a, b) => b[1].pts / b[1].n - a[1].pts / a[1].n || b[1].dg - a[1].dg);
     for (const [k] of orden.slice(0, Math.max(0, (c.n || 1) - ya.size))) D.premios.push({...base, periodo: k, deducido: true});
   }
+  // el mánager solo gana premios de mánager y los jugadores, los demás (se guardaron algunos mal, #85); y la liga de un
+  // premio de liga es la que jugabais esa temporada (alguno se guardó con la de otra noticia, #86)
+  const deManager = p => /^(m[áa]nager|entrenador)/i.test(p.premio || '');
+  D.premios = D.premios.filter(p => !!p.manager === deManager(p));
+  const ligaDe = {};
+  for (const q of IDX.partidos) if (q.oficial && esLiga(q)) ((ligaDe[q.temporada] ||= {})[q.competicion] = (ligaDe[q.temporada][q.competicion] || 0) + 1);
+  for (const p of D.premios) {
+    const t = /^\d{4}-\d{2}$/.test(p.periodo || '') ? tempDeF(p.periodo + '-15') : p.periodo;
+    const liga = Object.entries(ligaDe[t] || {}).sort((a, b) => b[1] - a[1])[0]?.[0];
+    if (p.competicion && esLiga(p) && liga && p.competicion !== liga) p.competicion = liga;
+  }
   IDX.premiosDe = {};
   for (const p of D.premios || []) if (p.iu) (IDX.premiosDe[p.iu] ||= []).push(p);
   IDX.pj = {};

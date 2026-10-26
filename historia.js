@@ -664,11 +664,24 @@ const HIST = (() => {
       <div class="cols2"><div class="card"><h4 style="margin-top:0">Línea del tiempo</h4><div class="tl">${ev.map(([f, t]) => `<div class="it"><div class="dt">${fecha(f)}</div><div class="tx">${esc(t)}</div></div>`).join('')}</div></div>
       <div><div class="card"><h4 style="margin-top:0">Récords del club</h4>${R.map(r => `<div class="tri" style="grid-template-columns:1fr auto"><span>${esc(r[0])}</span><span class="f">${esc(r[1])}</span></div>`).join('')}</div>
       ${recordsLigas()}
-      ${(D.premios || []).length ? `<div class="card" style="margin-top:14px"><h4 style="margin-top:0">Premios</h4>${[...D.premios].sort((a, b) => (b.periodo || '').localeCompare(a.periodo || '')).map(p => premioHtml(p, true)).join('')}
+      ${(D.premios || []).length ? `<div class="card" style="margin-top:14px"><h4 style="margin-top:0">Premios · ${D.premios.length}</h4>${premiosAgrupados()}
         <p class="mini">Del mánager y de los jugadores: FM Hub los lee de las noticias del juego (los de antes de usarlo, solo si la noticia sigue en el juego). Cada premio, con los partidos de ese mes.</p></div>` : ''}
       ${mejorOnce()}</div></div></div></section>`;
   }
   // récords de cada liga (Historial → Récords de FM), con los del club marcados
+  // premios agrupados por persona (el mánager primero, luego quien más tiene) y, dentro, por premio (#88)
+  function premiosAgrupados() {
+    const por = {};
+    for (const p of D.premios) (por[p.manager ? 'm' : p.iu || p.quien] ||= []).push(p);
+    const personas = Object.values(por).sort((a, b) => (b[0].manager ? 1 : 0) - (a[0].manager ? 1 : 0) || b.length - a.length);
+    return personas.map(ps => {
+      const p0 = ps[0], tipos = {};
+      for (const p of ps) (tipos[p.premio] ||= []).push(p);
+      const lista = Object.entries(tipos).sort((a, b) => b[1].length - a[1].length);
+      return `<details class="cant"${p0.manager ? ' open' : ''}><summary><b>${p0.iu ? jug(p0.iu, p0.quien) : esc(p0.quien) + ' (mánager)'}</b> · ${ps.length} ${ps.length === 1 ? 'premio' : 'premios'}: ${lista.map(([t, x]) => `${esc(t)}${x.length > 1 ? ' ×' + x.length : ''}`).join(', ')}</summary>
+        ${lista.map(([t, x]) => `<div style="margin:6px 0 2px;font-weight:700">${esc(t)}${x.length > 1 ? ` · ${x.length}` : ''}</div>${x.sort((a, b) => (b.periodo || '').localeCompare(a.periodo || '')).map(p => premioHtml(p)).join('')}`).join('')}</details>`;
+    }).join('');
+  }
   function recordsLigas() {
     const por = {};
     for (const r of D.records_liga || []) (por[r.competicion] ||= []).push(r);
