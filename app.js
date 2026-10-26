@@ -899,7 +899,13 @@ function pintar() {
   const activo = document.querySelector('#menu a[aria-current=page]');
   if (activo && activo.parentElement.scrollWidth > activo.parentElement.clientWidth) activo.parentElement.scrollTo({left: activo.offsetLeft - activo.parentElement.clientWidth / 2 + activo.offsetWidth / 2, behavior: 'smooth'});
   const foco = document.activeElement?.id, pos = document.activeElement?.selectionStart;
-  $('#vista').innerHTML = (['inicio', 'plantilla', 'progreso', 'plan', 'tactica'].includes(vista) ? avisoRespaldo() : '') + V[vista](arg);
+  // si una sección falla, se dice (antes se quedaba la sección anterior y parecía que no abría)
+  let html;
+  try { html = V[vista](arg); } catch (e) {
+    console.error(e);
+    html = `<section><div class="wrap"><p class="aviso">Esta sección ha fallado al pintarse: <b>${esc(e.message)}</b>. Repórtalo con «⚑ Reportar un error» (toca este aviso): el reporte lleva el detalle para arreglarlo.</p><pre class="mini" style="white-space:pre-wrap">${esc(String(e.stack || '').split('\n').slice(0, 6).join('\n'))}</pre></div></section>`;
+  }
+  $('#vista').innerHTML = (['inicio', 'plantilla', 'progreso', 'plan', 'tactica'].includes(vista) ? avisoRespaldo() : '') + html;
   if (vista === 'inicio' && !window.FMHUB_ESTATICO && !window.FMHUB_PUBLICADO) fetch('api/url').then(r => r.json()).then(u => { const e = $('#url'); if (e) e.textContent = u.url; }).catch(() => {});
   if (foco) { const e = document.getElementById(foco); if (e) { e.focus(); try { e.setSelectionRange(pos, pos); } catch (er) {} } }
   aparecer($('#vista'));

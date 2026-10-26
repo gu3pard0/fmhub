@@ -564,7 +564,7 @@ const TAC = (() => {
     };
     // ¿algún cambio de titular sostenido? (va antes que el detalle del último partido)
     const props = cambiosSostenidos(R, ref);
-    const propsHtml = props.length ? `<div class="pgrid">${props.map(({x, tit, mejor, ahora}) => `<div class="card pc min"><span class="tag">Cambio sostenido · ${x.rol ? esc(x.rol) : corto(x.code)}</span><h4>${esc(nombre(mejor.iu))} por delante de ${esc(nombre(tit.iu))}</h4>
+    const propsHtml = props.length ? `<div class="pgrid">${props.map(({x, tit, mejor, ahora, ev, donde}) => `<div class="card pc min"><span class="tag">Cambio sostenido · ${x.rol ? esc(x.rol) : corto(x.code)}</span><h4>${esc(nombre(mejor.iu))} por delante de ${esc(nombre(tit.iu))}</h4>
         <p>${jug(mejor.iu, nombre(mejor.iu))} tiene ${d2(ahora[0])} de prioridad en este puesto y tu titular, ${d2(ahora[1])}; y ya iba por delante antes de los ${N_SOSTENIDO} últimos partidos.</p>
         <p class="mini">En este puesto (según FM): ${esc(nombre(mejor.iu))} ${d2(ev[0].n)} en ${ev[0].pj} ${ev[0].pj === 1 ? 'partido' : 'partidos'}; ${esc(nombre(tit.iu))} ${ev[1] ? `${d2(ev[1].n)} en ${ev[1].pj}` : 'sin partidos aquí'}.<br>
         Últimos partidos de ${esc(nombre(mejor.iu))}: ${esc(donde[0])}.<br>Últimos de ${esc(nombre(tit.iu))}: ${esc(donde[1])}.</p></div>`).join('')}</div>
