@@ -22,6 +22,88 @@ const REP = (() => {
   const REPO = 'https://github.com/gu3pard0/fmhubapp';
   // a dónde se mandan: a FM Hub (la web local, o desde la publicada el de este PC); la copia autocontenida no tiene
   const DESTINO = window.FMHUB_ESTATICO ? null : window.FMHUB_PUBLICADO ? 'http://127.0.0.1:8765/api/reportes' : 'api/reportes';
+
+  // ---------------------------------------------------------------- reportes desde la web publicada, con contraseña
+  // La web publicada lleva (reportes_cifrado.json) una clave de GitHub que SOLO puede crear issues, cifrada con la
+  // contraseña de Airam (AES-GCM con PBKDF2, en el navegador: la contraseña no sale de él ni se publica). Con la
+  // contraseña, «Enviar» crea el issue directamente, desde cualquier sitio (móvil fuera de casa incluido), sin FM Hub.
+  const ITERACIONES = 600000;
+  const b64 = u8 => btoa(String.fromCharCode(...u8));
+  const deb64 = t => Uint8Array.from(atob(t), c => c.charCodeAt(0));
+  async function llave(pass, sal, iter) {
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey({name: 'PBKDF2', salt: sal, iterations: iter, hash: 'SHA-256'}, base, {name: 'AES-GCM', length: 256}, false, ['encrypt', 'decrypt']);
+  }
+  async function cifrar(texto, pass) {
+    const sal = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+    const datos = await crypto.subtle.encrypt({name: 'AES-GCM', iv}, await llave(pass, sal, ITERACIONES), new TextEncoder().encode(texto));
+    return {sal: b64(sal), iv: b64(iv), datos: b64(new Uint8Array(datos)), iteraciones: ITERACIONES};
+  }
+  async function descifrar(c, pass) {   // con una contraseña equivocada, AES-GCM falla (OperationError)
+    const t = await crypto.subtle.decrypt({name: 'AES-GCM', iv: deb64(c.iv)}, await llave(pass, deb64(c.sal), c.iteraciones), deb64(c.datos));
+    return new TextDecoder().decode(t);
+  }
+  let CIF = null;   // reportes_cifrado.json de la web publicada (null si no está activado)
+  if (window.FMHUB_PUBLICADO && window.crypto?.subtle) fetch('reportes_cifrado.json', {cache: 'no-store'}).then(r => r.ok ? r.json() : null).then(c => { CIF = c?.datos ? c : null; }).catch(() => {});
+  async function directo(datos, pass) {
+    const tok = await descifrar(CIF, pass);
+    const r = await fetch('https://api.github.com/repos/gu3pard0/fmhubapp/issues', {method: 'POST',
+      headers: {Authorization: 'Bearer ' + tok, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json'},
+      body: JSON.stringify({title: datos.titulo.slice(0, 250), body: (datos.cuerpo + '\n\n_Enviado desde la web publicada._').slice(0, 60000), labels: ['reporte']})});
+    if (!r.ok) throw new Error('GitHub respondió ' + r.status);
+    return (await r.json()).html_url;
+  }
+
+  // la tarjeta para activarlo, en la web local (en este PC: la clave de reportes se cifra aquí con la contraseña)
+  function ajustesHtml() {
+    if (window.FMHUB_ESTATICO || window.FMHUB_PUBLICADO || !window.crypto?.subtle) return '';
+    setTimeout(cargarAjustes, 0);
+    return `<div class="card" id="rep-ajustes"><h4 style="margin-top:0">Reportar desde la web publicada</h4><p class="mini">Cargando…</p></div>`;
+  }
+  async function cargarAjustes(cambiar = false) {
+    const el = document.getElementById('rep-ajustes');
+    if (!el) return;
+    let e;
+    try { e = await fetch('api/reportes-cifrado').then(r => r.json()); } catch (x) { return; }
+    const cab = '<h4 style="margin-top:0">Reportar desde la web publicada</h4>';
+    if (!e.token) {
+      el.innerHTML = cab + `<p class="mini">Para que «Reportar un error» funcione en la web publicada (también en el móvil fuera de casa), con una contraseña:</p>
+        <ol class="mini" style="margin:6px 0 0 18px;padding:0"><li>En GitHub: Settings → Developer settings → Fine-grained tokens → Generate new token. Repository access: <b>solo fmhubapp</b>. Permissions → Repository → <b>Issues: Read and write</b> (nada más).</li>
+        <li>Pega la clave en <code>data/hosting.json</code> como <code>"token_reportes": "…"</code> (aparte de la que ya hay) y vuelve aquí.</li></ol>
+        <p class="mini">Es una clave aparte a propósito: aunque alguien adivinara la contraseña, solo podría crear issues, no tocar el programa ni la web.</p>`;
+      return;
+    }
+    if (e.activo && !cambiar) {
+      el.innerHTML = cab + `<p class="mini">✓ Activado: en la web publicada, la primera vez en cada dispositivo te pide la contraseña y después los reportes se mandan solos.</p>
+        <div class="fila-btn"><button class="btn sec" type="button" data-repaj="cambiar">Cambiar contraseña</button><button class="btn sec" type="button" data-repaj="quitar">Quitar</button></div>`;
+      return;
+    }
+    el.innerHTML = cab + `<p class="mini">Elige una contraseña (al menos 10 caracteres; mejor una frase). Se cifra aquí la clave de reportes con ella y se publica cifrada con la web; la contraseña no se guarda ni se publica.</p>
+      <div class="fila-btn"><input type="password" id="rep-c1" placeholder="Contraseña" autocomplete="new-password" style="flex:1;min-width:140px"><input type="password" id="rep-c2" placeholder="Repítela" autocomplete="new-password" style="flex:1;min-width:140px">
+      <button class="btn" type="button" data-repaj="activar">Activar</button></div><p class="mini rep-ajerr" hidden></p>`;
+  }
+  document.addEventListener('click', async ev => {
+    const b = ev.target.closest('[data-repaj]');
+    if (!b) return;
+    const que = b.dataset.repaj, el = document.getElementById('rep-ajustes');
+    if (que === 'cambiar') return cargarAjustes(true);
+    if (que === 'quitar') {
+      await fetch('api/reportes-cifrado', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({quitar: true})}).catch(() => {});
+      return cargarAjustes();
+    }
+    const c1 = el.querySelector('#rep-c1').value, c2 = el.querySelector('#rep-c2').value, err = el.querySelector('.rep-ajerr');
+    const mal = t => { err.textContent = t; err.hidden = false; };
+    if (c1.length < 10) return mal('La contraseña tiene que tener al menos 10 caracteres.');
+    if (c1 !== c2) return mal('Las dos contraseñas no coinciden.');
+    b.disabled = true; b.textContent = 'Cifrando…';
+    try {
+      const {token} = await fetch('api/clave-reportes', {cache: 'no-store'}).then(r => r.json());
+      const c = await cifrar(token, c1);
+      const r = await fetch('api/reportes-cifrado', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(c)});
+      if (!r.ok) throw new Error(r.status);
+      el.innerHTML = '<h4 style="margin-top:0">Reportar desde la web publicada</h4><p class="mini">✓ Activado. Se sube con la próxima publicación de la web (en unos minutos).</p>';
+    } catch (x) { b.disabled = false; b.textContent = 'Activar'; mal('No se pudo activar: ¿está abierto FM Hub?'); }
+  });
   const PIEZAS = 'td,th,li,.tri,.kpi,.big,.pod,.trofeo,.op,.slot,.it,.arow,.pc,.cur,p,h2,h3,h4,h5,h6,.pill,.tab,.chip,svg';
   let activo = false, marcado = null;
 
@@ -112,6 +194,7 @@ const REP = (() => {
       <label>${c.general ? 'Qué pasa o qué cambiarías' : 'Lo que debería poner'}<textarea name="deberia" rows="${c.general ? 5 : 3}" placeholder="${c.general ? 'p. ej. «tarda mucho en actualizarse» o «estaría bien poder…»' : 'p. ej. «194.586 €, vendido el 18 jul 2028»'}" required></textarea></label>
       <label>Por qué lo sabes o qué más ves raro <span class="mini">(opcional)</span><textarea name="por" rows="2" placeholder="p. ej. «en FM, en el historial de traspasos, sale así»"></textarea></label>
       <p class="mini">Se manda con la sección, la fila, la parte del código que lo pinta (${esc(c.codigo)}) y la versión de los datos, para que se arregle la causa y no solo el número.</p>
+      ${window.FMHUB_PUBLICADO && CIF && !leer('fmhub-rep-clave', '') ? `<label>Contraseña de reportes <span class="mini">(solo la primera vez en este dispositivo)</span><input type="password" name="clave" autocomplete="current-password"></label>` : ''}
       <p class="rep-err mini" hidden>Escribe qué debería poner.</p>
       <div class="fila-btn"><button class="btn" type="submit" value="github">Enviar</button><button class="btn sec" type="submit" value="copiar">Copiar texto</button><button class="btn sec" type="button" data-repx>Cancelar</button></div>
       ${enviados.length ? `<details class="cant"><summary>Enviados desde este navegador · ${enviados.length}</summary><ul class="rep-lista">${enviados.slice(-10).reverse().map(r => `<li><time>${esc(new Date(r.cuando).toLocaleString('es-ES', {dateStyle: 'short', timeStyle: 'short'}))}</time> ${esc(r.titulo)}</li>`).join('')}</ul></details>` : ''}
@@ -147,6 +230,24 @@ const REP = (() => {
         return aviso('Se abre GitHub con el reporte relleno: dale a «Submit new issue».');
       }
       const boton = ev.submitter; if (boton) { boton.disabled = true; boton.textContent = 'Enviando…'; }
+      // web publicada con contraseña: el issue se crea directamente en GitHub, sin FM Hub
+      const pass = window.FMHUB_PUBLICADO && CIF ? (f.clave?.value || leer('fmhub-rep-clave', '')) : '';
+      if (pass) {
+        try {
+          const issue = await directo(datos, pass);
+          apuntar('fmhub-rep-clave', pass);
+          cerrar();
+          return barra(`Reporte enviado: <a href="${esc(issue)}" target="_blank" rel="noopener">issue #${esc(issue.split('/').pop())}</a>. Ya no hace falta nada más. <button type="button" class="chip" data-repfin>Vale</button>`);
+        } catch (x) {
+          if (x.name === 'OperationError') {   // contraseña equivocada
+            apuntar('fmhub-rep-clave', '');
+            const e = f.querySelector('.rep-err'); e.textContent = 'Contraseña incorrecta.'; e.hidden = false;
+            if (boton) { boton.disabled = false; boton.textContent = 'Enviar'; }
+            return;
+          }
+          // sin conexión o GitHub falló: sigue como siempre (FM Hub de este PC o pendiente en el navegador)
+        }
+      }
       let res = null;
       try { res = await mandar(true); } catch (e) { res = {error: window.FMHUB_PUBLICADO ? 'FM Hub no está abierto en este PC' : 'sin respuesta de FM Hub', sinFMHub: true}; }
       cerrar();
@@ -187,7 +288,11 @@ const REP = (() => {
     if (!DESTINO || !pend.length || vaciando) return;
     vaciando = true;
     const quedan = [], hechos = [];
+    const pass = window.FMHUB_PUBLICADO && CIF ? leer('fmhub-rep-clave', '') : '';
     for (const p of pend) {
+      if (pass) {
+        try { hechos.push(await directo(p, pass)); continue; } catch (x) {}
+      }
       try {
         const res = await fetch(DESTINO, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({...p, enviar: true}),
                                           signal: AbortSignal.timeout?.(40000)}).then(x => x.json());
@@ -211,5 +316,5 @@ const REP = (() => {
   b.addEventListener('click', ev => { ev.stopPropagation(); activo ? terminar() : empezar(); });
   document.body.appendChild(b);
 
-  return {empezar, terminar};
+  return {empezar, terminar, ajustesHtml};
 })();

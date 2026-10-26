@@ -384,7 +384,7 @@ V.inicio = () => {
       <div class="card"><h4 style="margin-top:0">Últimos partidos</h4>${proxHtml}${ult.map(p => `<div class="tri"><span class="d">${fecha(p.fecha)}</span><span><span class="ha">${p.casa ? 'C' : 'F'}</span>${esc(p.rival)} <span class="mini">${esc(p.competicion || '')}</span></span>${pillRes(p)}</div>`).join('')}
         <h4>Últimos traspasos</h4>${tras.map(t => `<div class="tri"><span class="d">${fecha(t.fecha)}</span><span class="${t.entra ? 'in' : 'out'}">${t.entra ? '↘' : '↗'} ${jug(t.iu, t.jugador)} <span class="mini">${esc(t.otro_club || 'libre')}</span></span><span class="f">${t.cesion ? 'cesión' : eur(t.precio_eur)}</span></div>`).join('')}</div>
     </div>
-    <div class="cols2" style="margin-top:14px">${qr}${HIST.exportacion()}${estadoHtml()}</div>
+    <div class="cols2" style="margin-top:14px">${qr}${HIST.exportacion()}${estadoHtml()}${typeof REP !== 'undefined' ? REP.ajustesHtml() : ''}</div>
   </div></section>`;
 };
 
