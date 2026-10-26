@@ -137,6 +137,15 @@ function preparar() {
   // el informe de cada partido capturado de FM (tools/capturar_partidos.py): quién jugó, dónde, minutos, nota…
   IDX.informe = {};
   for (const r of D.partido_informe || []) (IDX.informe[r.fecha] ||= []).push(r);
+  // formación con el nombre que le da FM (#115): la del calendario exportado; si no se exportó, la que FM dio a ese mismo
+  // once (los mismos puestos) en los partidos exportados («4-2-2-2 MC Asimétrico MP (D)», no un 4-3-3 contado a mano)
+  const firma = f => (IDX.informe[f] || []).filter(r => r.titular && r.puesto && r.puesto !== 'POR').map(r => r.puesto).sort().join(' ');
+  const nombres = {};
+  for (const p of IDX.partidos) if (p.formacion && IDX.informe[p.fecha]) { const k = firma(p.fecha); ((nombres[k] ||= {})[p.formacion] = (nombres[k][p.formacion] || 0) + 1); }
+  for (const p of IDX.partidos) if (!p.formacion && IDX.informe[p.fecha]) {
+    const n = Object.entries(nombres[firma(p.fecha)] || {}).sort((a, b) => b[1] - a[1])[0];
+    if (n) { p.formacion = n[0]; p.formacionAprendida = true; }
+  }
   IDX.stats = {};
   for (const e of D.estadisticas) (IDX.stats[e.iu] ||= {})[e.tipo] = e;
   IDX.export = {};
@@ -178,6 +187,18 @@ function preparar() {
     for (const r of cands.slice(0, Math.max(0, k - ya))) IDX.mvp[r.fecha] = {iu: r.iu, seguro: false};
   }
   for (const [f, m] of Object.entries(IDX.mvp)) (IDX.mvpDe[m.iu] ||= []).push(f);
+  // partidos cuyo MVP fue para el rival (#114): los que FM Hub vio uno a uno sin que ninguno de los nuestros sumara un MVP
+  // y, en las temporadas deducidas, los partidos con notas que quedan sin MVP cuando ya están repartidos todos los de la
+  // tabla de carrera (FM siempre da uno: si no es nuestro, es del rival)
+  IDX.mvpRival = new Set();
+  const porFecha = {};
+  for (const r of D.partido_jugador) if (r.fecha) (porFecha[r.fecha] ||= []).push(r);
+  for (const [f, rs] of Object.entries(porFecha)) if (oficial.has(f) && !IDX.mvp[f] && rs.length >= 11 && rs.every(r => !r.varios && !r.mvp)) IDX.mvpRival.add(f);
+  for (const [t, por] of Object.entries(cuantos)) {
+    const total = Object.values(por).reduce((a, b) => a + b, 0), asignados = Object.keys(IDX.mvp).filter(f => tempDeF(f) === t).length;
+    if (asignados < total) continue;
+    for (const f of Object.keys(mejor)) if (tempDeF(f) === t && !IDX.mvp[f]) IDX.mvpRival.add(f);
+  }
   // premios de los nuestros (jugador del mes, mánager del mes…), leídos de las noticias de FM
   // premios de temporadas pasadas que dijo el usuario (por temporada, sin el mes; tools/premios_conocidos.json): los
   // «del año» van a su temporada y los «del mes», a los meses de liga con mejores resultados de esa temporada (el premio
@@ -249,7 +270,9 @@ function versiones() {
 const versionActual = () => { const v = versiones()[0]; return v ? `${v.k}.${v.n}` : ''; };
 const haceCuanto = f => { const m = (Date.now() - new Date(f)) / 60000; return !isFinite(m) ? '' : m < 2 ? 'ahora mismo' : m < 60 ? `hace ${Math.round(m)} min` : m < 48 * 60 ? `hace ${Math.round(m / 60)} h` : `hace ${Math.round(m / 1440)} días`; };
 
-const jug = (iu, nombre) => iu ? `<a class="j" href="#jugador/${iu}">${esc(nombre || IDX.nombres[iu] || iu)}</a>` : esc(nombre || '');
+// el nombre de pila va aparte: en las tablas del móvil solo se ve el apellido (#111, #113)
+const nombreHtml = n => { const t = String(n || ''), i = t.indexOf(' '); return i > 0 ? `<span class="np">${esc(t.slice(0, i))} </span>${esc(t.slice(i + 1))}` : esc(t); };
+const jug = (iu, nombre) => iu ? `<a class="j" href="#jugador/${iu}">${nombreHtml(nombre || IDX.nombres[iu] || iu)}</a>` : esc(nombre || '');
 const pillRes = p => `<span class="res ${p.res}">${p.gf}-${p.gc}</span>`;
 // un premio («Jugador del mes · febrero 2029 · Sky Bet League One») y los partidos oficiales de ese periodo, cada uno con
 // su once (y la nota del jugador si es suyo)
@@ -384,7 +407,7 @@ V.inicio = () => {
       <div class="card"><h4 style="margin-top:0">Últimos partidos</h4>${proxHtml}${ult.map(p => `<div class="tri"><span class="d">${fecha(p.fecha)}</span><span><span class="ha">${p.casa ? 'C' : 'F'}</span>${esc(p.rival)} <span class="mini">${esc(p.competicion || '')}</span></span>${pillRes(p)}</div>`).join('')}
         <h4>Últimos traspasos</h4>${tras.map(t => `<div class="tri"><span class="d">${fecha(t.fecha)}</span><span class="${t.entra ? 'in' : 'out'}">${t.entra ? '↘' : '↗'} ${jug(t.iu, t.jugador)} <span class="mini">${esc(t.otro_club || 'libre')}</span></span><span class="f">${t.cesion ? 'cesión' : eur(t.precio_eur)}</span></div>`).join('')}</div>
     </div>
-    <div class="cols2" style="margin-top:14px">${qr}${HIST.exportacion()}${estadoHtml()}${typeof REP !== 'undefined' ? REP.ajustesHtml() : ''}</div>
+    <div class="cols2" style="margin-top:14px">${qr}${HIST.exportacion()}${estadoHtml()}${partidasHtml()}${typeof REP !== 'undefined' ? REP.ajustesHtml() : ''}</div>
   </div></section>`;
 };
 
@@ -542,10 +565,12 @@ V.partidos = () => {
       {k: 'res', t: 'Res.', h: p => pillRes(p) + esc(p.pen)},
       {k: 'espectadores', t: 'Público', n: 1, h: p => num(p.espectadores)},
       {k: 'gol', t: 'Goleadores', cls: 'sc', h: golesTexto},
-      {k: 'mvp', t: 'MVP', cls: 'sc', v: p => IDX.nombres[IDX.mvp[p.fecha]?.iu] || '', h: p => IDX.mvp[p.fecha] ? `★ ${jug(IDX.mvp[p.fecha].iu)}${IDX.mvp[p.fecha].seguro ? '' : ' <span class="mini" title="Deducido: la mejor nota del partido, cuadrado con los MVP de su tabla de carrera">≈</span>'}` : ''},
-      {k: 'formacion', t: 'Formación', cls: 'cmp', h: p => esc(p.formacion || IDX.informe[p.fecha]?.[0]?.formacion || '') + (p.formacion_rival ? `<br><span class="mini">rival: ${esc(p.formacion_rival)}</span>` : '')},
-      ...(D.partido_informe?.length ? [{k: 'once', t: 'Once', h: p => IDX.informe[p.fecha] ? `<button class="chip" data-once="${p.fecha}">Ver once</button>` : '<span class="mini">—</span>'}] : []),
-      ...(D.alineaciones?.length ? [{k: 'alin', t: 'Alineación', cls: 'sc', h: p => (IDX.alin[p.fecha] || []).map(a => jug(a.iu, a.jugador)).join(', ') || '—'}] : []),
+      {k: 'mvp', t: 'MVP', cls: 'sc', v: p => IDX.nombres[IDX.mvp[p.fecha]?.iu] || (IDX.mvpRival.has(p.fecha) ? 'rival' : ''), h: p => IDX.mvp[p.fecha] ? `★ ${jug(IDX.mvp[p.fecha].iu)}${IDX.mvp[p.fecha].seguro ? '' : ' <span class="mini" title="Deducido: la mejor nota del partido, cuadrado con los MVP de su tabla de carrera">≈</span>'}`
+        : IDX.mvpRival.has(p.fecha) ? '<span class="mini" title="FM dio el jugador del partido a uno del rival">del rival</span>' : p.oficial ? '<span class="mini" title="Sin datos de ese partido para saberlo">–</span>' : ''},
+      {k: 'formacion', t: 'Formación', cls: 'cmp', h: p => esc(p.formacion || IDX.informe[p.fecha]?.[0]?.formacion || '') + (p.formacionAprendida ? ' <span class="mini" title="Sin exportación de ese partido: el nombre que FM dio a ese mismo once en los partidos exportados">≈</span>' : '') + (p.formacion_rival ? `<br><span class="mini">rival: ${esc(p.formacion_rival)}</span>` : '')},
+      // una sola columna (#116): «Ver once» si hay informe; si no, los nombres de la alineación exportada, si la hay
+      ...(D.partido_informe?.length || D.alineaciones?.length ? [{k: 'once', t: 'Once', h: p => IDX.informe[p.fecha] ? `<button class="chip" data-once="${p.fecha}">Ver once</button>`
+        : (IDX.alin[p.fecha] || []).length ? `<span class="mini">${IDX.alin[p.fecha].map(a => jug(a.iu, a.jugador)).join(', ')}</span>` : '<span class="mini">—</span>'}] : []),
     ], ps.map(p => ({...p, _cls: 'r' + p.res})), {k: 'fecha', d: 1})}
   </div></section>`;
 };
@@ -723,6 +748,7 @@ V.jugador = iu => {
     <p class="mini" style="margin:6px 0 0"><a class="j" href="#comparar/${iu}">Comparar con otro jugador →</a></p>
     <div class="meta" style="margin-top:10px">${meta.map(([k, v]) => `<span>${k}: <b>${esc(v)}</b></span>`).join('')}</div>
     ${HIST.trayectoria(iu)}
+    ${HIST.importancia(iu)}
     ${HIST.records(iu)}
     ${TAC.porPuestoHtml(iu)}
     ${premiosHtml}
@@ -901,11 +927,85 @@ async function recargarDatos() {
   try { D = await cargar(); preparar(); cabecera(); if (!document.activeElement?.matches('input,select')) pintar(); } catch (e) {}
 }
 
+// ---------------------------------------------------------------- varias partidas (#122)
+// En la web local: qué partidas hay, cambiar a otra (FM Hub se vuelve a abrir con ella) y dar de alta una nueva (con FM
+// abierto y esa partida cargada: FM Hub busca a su mánager en la memoria; tarda un par de minutos).
+function partidasHtml() {
+  if (window.FMHUB_ESTATICO || window.FMHUB_PUBLICADO) return '';
+  setTimeout(cargarPartidas, 0);
+  return `<div class="card" id="partidas-c"><h4 style="margin-top:0">Partidas</h4><p class="mini">Cargando…</p></div>`;
+}
+async function cargarPartidas() {
+  const el = document.getElementById('partidas-c');
+  if (!el) return;
+  let lista = [], alta = {};
+  try { [lista, alta] = await Promise.all([fetch('api/partidas?todas=1').then(r => r.json()), fetch('api/partidas-alta').then(r => r.json())]); } catch (e) { return; }
+  const estadoAlta = alta.estado === 'buscando' ? `<p class="mini" style="color:var(--gold)">⏳ ${esc(alta.mensaje || 'Buscando…')}</p>`
+    : alta.estado ? `<p class="mini" style="color:${alta.estado === 'hecha' ? 'var(--w)' : 'var(--l)'}">${esc(alta.mensaje || '')}</p>` : '';
+  el.innerHTML = `<h4 style="margin-top:0">Partidas</h4>
+    <p class="mini">Cada partida de FM (cada archivo de guardado) con sus propios datos. FM Hub lee la activa: si cargas otra en FM, no guarda nada (no se mezclan).</p>
+    ${lista.map(p => `<div class="tri" style="grid-template-columns:1fr auto"><span><b>${esc(p.nombre)}</b>${p.activa ? ' <span class="pill">activa</span>' : ''}</span>
+      ${p.activa ? '' : `<button class="chip" type="button" data-partida-usar="${esc(p.id)}">Usar esta</button>`}</div>`).join('')}
+    <details class="cant" style="margin-top:8px"${alta.estado ? ' open' : ''}><summary>Nueva partida</summary>
+      <p class="mini">Abre en FM la partida nueva (cargada, en la pantalla que sea) y escribe su nombre y el de tu mánager tal cual sale en FM.</p>
+      <div class="fila-btn"><input id="pn-nombre" placeholder="Nombre (p. ej. Hartlepool de Varela)" style="flex:1;min-width:140px"><input id="pn-manager" placeholder="Nombre del mánager" style="flex:1;min-width:140px">
+      <button class="btn" type="button" data-partida-nueva ${alta.estado === 'buscando' ? 'disabled' : ''}>Crear</button></div>${estadoAlta}</details>`;
+  if (alta.estado === 'buscando') setTimeout(cargarPartidas, 3000);
+}
+document.addEventListener('click', async ev => {
+  const usar = ev.target.closest('[data-partida-usar]'), crear = ev.target.closest('[data-partida-nueva]');
+  if (!usar && !crear) return;
+  const cuerpo = usar ? {accion: 'usar', id: usar.dataset.partidaUsar}
+    : {accion: 'nueva', nombre: document.getElementById('pn-nombre').value, manager: document.getElementById('pn-manager').value};
+  if (crear && (!cuerpo.nombre.trim() || !cuerpo.manager.trim())) return alert('Escribe el nombre de la partida y el del mánager.');
+  if (usar && !confirm('FM Hub se volverá a abrir leyendo esa partida. ¿Seguro?')) return;
+  try {
+    const r = await fetch('api/partidas', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(cuerpo)}).then(x => x.json());
+    if (usar) alert(r.ok ? 'Hecho: FM Hub se vuelve a abrir con esa partida (la web se recarga sola).' : r.mensaje);
+  } catch (e) { alert('No se pudo: ¿está abierto FM Hub?'); }
+  cargarPartidas();
+});
+
+// ---------------------------------------------------------------- barra de iconos del móvil (#121)
+// En el móvil el menú de texto de arriba se cambia por una barra fija abajo con iconos: las secciones más usadas y «Más»,
+// que abre todas en una cuadrícula. Los iconos son trazos SVG propios (24×24).
+const ICONO = {
+  inicio: 'M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z', viaje: 'M3 17l6-6 4 4 8-8M15 7h6v6',
+  temporadas: 'M4 5h16v16H4zM4 9h16M8 3v4M16 3v4', plantilla: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21v-1a6 6 0 0 1 12 0v1M16 3.5a4 4 0 0 1 0 7.5M22 21v-1a6 6 0 0 0-4-5.6',
+  historial: 'M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM3 22a9 9 0 0 1 18 0', partidos: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7l4 3-1.5 4.5h-5L8 10z',
+  rivales: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z', goles: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2',
+  hitos: 'M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4a3 3 0 0 0 3 4M17 6h3a3 3 0 0 1-3 4', traspasos: 'M4 8h13l-3-3M20 16H7l3 3',
+  finanzas: 'M18 7a6 6 0 1 0 0 10M4 10h9M4 14h9', plan: 'M9 4h6v3H9zM7 5H5v16h14V5h-2M8 11h8M8 15h5',
+  tactica: 'M4 4h16v16H4zM12 4v16M9 12a3 3 0 1 0 6 0 3 3 0 1 0-6 0', progreso: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
+  comparar: 'M12 3v18M5 7h14M5 7l-3 6a3 3 0 0 0 6 0zM19 7l-3 6a3 3 0 0 0 6 0z',
+  curiosidades: 'M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z', mas: 'M4 6h16M4 12h16M4 18h16',
+};
+const BM_PRINCIPALES = ['inicio', 'temporadas', 'plantilla', 'partidos'];
+const svgIcono = k => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONO[k] || ICONO.mas}"/></svg>`;
+function barraMovil() {
+  const secciones = [...document.querySelectorAll('#menu a')].map(a => [a.getAttribute('href').slice(1), a.textContent]);
+  const corto = {temporadas: 'Temporadas', historial: 'Jugadores', goles: 'Goles', hitos: 'Récords', traspasos: 'Fichajes', finanzas: 'Economía'};
+  const enlace = ([k, t]) => `<a href="#${k}">${svgIcono(k)}<span>${esc(corto[k] || t)}</span></a>`;
+  const bm = document.createElement('nav');
+  bm.id = 'bm'; bm.setAttribute('aria-label', 'Secciones');
+  bm.innerHTML = secciones.filter(([k]) => BM_PRINCIPALES.includes(k)).map(enlace).join('') + `<button type="button" data-bmmas aria-label="Más secciones">${svgIcono('mas')}<span>Más</span></button>`;
+  const hoja = document.createElement('div');
+  hoja.id = 'bm-mas'; hoja.hidden = true;
+  hoja.innerHTML = `<div class="bm-rejilla">${secciones.map(enlace).join('')}</div>`;
+  document.body.append(hoja, bm);
+  bm.querySelector('[data-bmmas]').addEventListener('click', () => { hoja.hidden = !hoja.hidden; });
+  hoja.addEventListener('click', ev => { if (ev.target === hoja || ev.target.closest('a')) hoja.hidden = true; });
+}
+barraMovil();
+
 // ---------------------------------------------------------------- navegación
 function pintar() {
   const [ruta, arg] = (location.hash.slice(1) || 'inicio').split('/');
   const vista = V[ruta] ? ruta : 'inicio';
-  document.querySelectorAll('#menu a').forEach(a => a.setAttribute('aria-current', a.getAttribute('href') === '#' + vista ? 'page' : 'false'));
+  document.querySelectorAll('#menu a, #bm a, #bm-mas a').forEach(a => a.setAttribute('aria-current', a.getAttribute('href') === '#' + vista ? 'page' : 'false'));
+  document.getElementById('bm-mas')?.setAttribute('hidden', '');
+  const mas = document.querySelector('#bm [data-bmmas]');
+  if (mas) mas.setAttribute('aria-current', BM_PRINCIPALES.includes(vista) ? 'false' : 'page');
   // en el móvil el menú se desliza: se centra en la sección activa
   const activo = document.querySelector('#menu a[aria-current=page]');
   if (activo && activo.parentElement.scrollWidth > activo.parentElement.clientWidth) activo.parentElement.scrollTo({left: activo.offsetLeft - activo.parentElement.clientWidth / 2 + activo.offsetWidth / 2, behavior: 'smooth'});
@@ -964,7 +1064,11 @@ document.addEventListener('keydown', ev => {
   if (ev.key === '/' && campo && !ev.target.matches('input,select,textarea')) { ev.preventDefault(); campo.focus(); campo.select(); }
   else if (ev.key === 'Escape' && ev.target === campo && campo.value) { campo.value = ''; campo.dispatchEvent(new Event('input', {bubbles: true})); }
 });
-window.addEventListener('hashchange', () => { pintar(); window.scrollTo(0, document.querySelector('nav.top').offsetTop); });
+window.addEventListener('hashchange', () => {
+  pintar();
+  const nav = document.querySelector('nav.top');   // en el móvil está oculto (barra de iconos abajo): al principio de la sección
+  window.scrollTo(0, nav.offsetParent ? nav.offsetTop : document.getElementById('vista').offsetTop);
+});
 
 (async () => {
   try {

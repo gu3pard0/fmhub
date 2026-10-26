@@ -63,7 +63,17 @@ img,svg{max-width:100%}
 .tabs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin;padding-bottom:4px}
 .tab{flex:0 0 auto}
 .search{max-width:100%}
-select.btn{appearance:auto;padding:8px 10px}
+/* desplegables con los colores de la web (claro y oscuro), flecha dorada propia y foco visible (#107) */
+:root{--flecha-sel:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23c8962e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")}
+select{appearance:none;-webkit-appearance:none;font:600 14px 'Public Sans',system-ui,sans-serif;color:var(--ink);background-color:var(--card);
+  border:1px solid var(--line);border-radius:10px;padding:8px 34px 8px 12px;cursor:pointer;max-width:100%;
+  background-image:var(--flecha-sel);
+  background-repeat:no-repeat;background-position:right 12px center;transition:border-color .15s,box-shadow .15s}
+select:hover{border-color:var(--gold)}
+select:focus-visible{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px color-mix(in srgb,var(--gold) 30%,transparent)}
+select option{background:var(--card);color:var(--ink);font-weight:500}
+select optgroup{background:var(--bg);color:var(--gold);font:700 12px Archivo;font-style:normal}
+select.btn{padding:8px 34px 8px 12px}
 .mini{overflow-wrap:anywhere}
 .registro{max-width:100%}
 td.sc{min-width:180px}
@@ -196,6 +206,7 @@ footer ul{padding-left:18px}
 /* Mi táctica: campo con el once y editor del puesto */
 .tac-barra{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:6px 0 14px}
 .tac-barra select,.tac-ed select,.tac-barra input,.tac-ed input{padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font:inherit}
+.tac-barra select,.tac-ed select{padding-right:28px;background:var(--card) var(--flecha-sel) no-repeat right 8px center}
 .tac{display:grid;grid-template-columns:minmax(280px,420px) 1fr;gap:16px;align-items:start}
 .campo{position:relative;aspect-ratio:68/100;border-radius:14px;overflow:hidden;background:repeating-linear-gradient(180deg,#1f5c33 0 10%,#226638 10% 20%);border:2px solid #2e7a45;box-shadow:inset 0 0 0 2px rgba(255,255,255,.08)}
 .campo-lineas{position:absolute;inset:4%;border:2px solid rgba(255,255,255,.35);border-radius:4px;pointer-events:none}
@@ -223,7 +234,7 @@ footer ul{padding-left:18px}
 /* ---------- Aviso de datos de respaldo, versión y selector de partida ---------- */
 .aviso{margin:14px 0 0;padding:10px 12px;border-radius:10px;border:1px solid color-mix(in srgb,var(--d) 45%,var(--line));background:color-mix(in srgb,var(--dbg) 70%,transparent);font-size:13px}
 .ver{font:600 11px 'JetBrains Mono';padding:1px 7px;border-radius:99px;border:1px solid currentColor;opacity:.8;letter-spacing:0}
-.sel-partida{font:inherit;background:transparent;color:inherit;border:1px solid currentColor;border-radius:8px;padding:1px 6px;max-width:60vw}
+.sel-partida{font:inherit;background:transparent var(--flecha-sel) no-repeat right 6px center;color:inherit;border:1px solid currentColor;border-radius:8px;padding:1px 22px 1px 6px;max-width:60vw}
 .sel-partida option{color:#111}
 
 /* ---------- Ficha: récords en el club ---------- */
@@ -280,5 +291,49 @@ body.rep-modo #vista,body.rep-modo #modal,body.rep-modo header,body.rep-modo foo
 
 .aviso-cap{border:1px solid color-mix(in srgb,var(--gold) 55%,var(--line));background:color-mix(in srgb,var(--gold) 10%,transparent);border-radius:10px;padding:10px 12px;font-size:13.5px;line-height:1.45}
 .por-cap{list-style:none;margin:0 0 10px;padding:0;display:grid;gap:8px}.por-cap li{display:grid;gap:2px;border-left:3px solid var(--gold);padding:2px 0 2px 10px}.por-cap small{font-size:12px;color:var(--mut)}.por-cap .como{color:var(--ink)}
-.cmp-sel{gap:10px}.cmp-sel select{max-width:240px}
+.cmp-sel{gap:12px}.cmp-sel label{display:flex;flex-direction:column;gap:4px;flex:1 1 200px;min-width:0;font:700 11px Archivo;letter-spacing:.06em;text-transform:uppercase;color:var(--mut)}
+.cmp-sel select{width:100%;max-width:none;text-transform:none;letter-spacing:0}
 table.cmp{table-layout:fixed;width:100%;min-width:520px}table.cmp th:first-child{text-align:left;font-weight:500;color:var(--mut);width:34%}table.cmp td.cmp-mejor{color:var(--w);font-weight:700}table.cmp thead th{text-align:right}
+
+/* móvil: en las tablas, el jugador solo con su apellido y la primera columna más estrecha (#111, #113) */
+@media (max-width:560px){
+  .tw .np{display:none}
+  .tw td:first-child{max-width:128px;overflow:hidden;text-overflow:ellipsis}
+  .tw td:first-child .ha{display:none}
+  .tw table{font-size:13px}
+  /* récords de las ligas: nombre del récord arriba y valor, club y fechas debajo (#117) */
+  .tri.rl{grid-template-columns:1fr!important;gap:2px}
+  .tri.rl .f{white-space:normal;text-align:left}
+}
+
+/* barra de iconos del móvil (#121): abajo, fija; en el ordenador no se ve */
+#bm,#bm-mas{display:none}
+@media (max-width:560px){
+  nav.top{display:none}
+  body{padding-bottom:calc(64px + env(safe-area-inset-bottom))}
+  #bm{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:45;background:color-mix(in srgb,var(--card) 94%,transparent);backdrop-filter:blur(10px);
+    border-top:1px solid var(--line);padding:6px 4px calc(6px + env(safe-area-inset-bottom))}
+  #bm a,#bm button{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px 0;border:0;background:none;color:var(--mut);text-decoration:none;
+    font:600 10px Archivo;cursor:pointer;border-radius:10px}
+  #bm svg,#bm-mas svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  #bm [aria-current=page]{color:var(--gold)}
+  #bm-mas:not([hidden]){display:flex;position:fixed;inset:0;z-index:44;background:rgba(10,10,8,.55);align-items:flex-end}
+  .bm-rejilla{width:100%;display:grid;grid-template-columns:repeat(4,1fr);gap:6px;background:var(--card);border-radius:16px 16px 0 0;
+    padding:14px 10px calc(78px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}
+  .bm-rejilla a{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 2px;color:var(--ink);text-decoration:none;font:600 11px Archivo;
+    text-align:center;border-radius:12px}
+  .bm-rejilla a[aria-current=page]{background:var(--goldbg);color:var(--gold)}
+  /* lo fijo de abajo (reportar, en directo) sube por encima de la barra */
+  .rep-boton,#vivo{bottom:calc(72px + env(safe-area-inset-bottom))!important}
+  .ver-burbuja{bottom:calc(118px + env(safe-area-inset-bottom))!important}
+  /* con «Más» abierto, nada flotando encima de la cuadrícula */
+  body:has(#bm-mas:not([hidden])) :is(.rep-boton,.ver-burbuja,#vivo){display:none!important}
+}
+
+/* noticias de la temporada (#110): cada una se despliega al tocar su titular */
+details.noticia{margin-bottom:8px;padding:12px 14px}
+details.noticia>summary{cursor:pointer;list-style:none}
+details.noticia>summary::-webkit-details-marker{display:none}
+details.noticia>summary::before{content:'▸ ';color:var(--gold)}
+details.noticia[open]>summary::before{content:'▾ '}
+details.noticias>summary{cursor:pointer;margin:18px 0 8px}

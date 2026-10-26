@@ -367,6 +367,14 @@ const HIST = (() => {
     const tg = top('g');
     if (tg.length) h += `<h4>Podio de goleadores</h4><div class="podium">${tg.slice(0, 3).map((p, k) => `<div class="pod"><div class="rk">#${k + 1}</div><b>${p.g}</b><span>${jug(p.iu, p.n)}</span><small>${p.pj} PJ${p.avg ? ' · media ' + d2(p.avg) : ''}</small></div>`).join('')}</div>
       <div class="cols2"><div><h4>Goleadores (oficiales)</h4><div class="card">${barras(tg.map(p => [jug(p.iu, p.n), p.g]), 'g')}</div></div><div><h4>Asistencias</h4><div class="card">${barras(top('a').map(p => [jug(p.iu, p.n), p.a]))}</div></div></div>`;
+    // mejor nota media de la temporada (#112): con un mínimo de partidos (un tercio de los del que más jugó, hasta 10)
+    const minPJ = Math.min(10, Math.ceil(Math.max(0, ...sq.map(p => p.pj)) / 3));
+    const medias = [...sq].filter(p => p.avg && p.pj >= minPJ).sort((a, b) => b.avg - a.avg).slice(0, 8);
+    if (medias.length) {
+      const lo = Math.min(...medias.map(p => p.avg)) - .2, hi = Math.max(...medias.map(p => p.avg));
+      h += `<h4>Mejor nota media (${minPJ}+ PJ)</h4><div class="card"><div class="bars">${medias.map(p => `<div class="row"><span>${jug(p.iu, p.n)}</span><div class="bg"><div class="fg" style="width:${(p.avg - lo) / Math.max(.01, hi - lo) * 100}%"></div></div><b>${d2(p.avg)}</b></div>`).join('')}</div>
+        <p class="mini" style="margin:8px 0 0">${medias.map(p => `${esc(p.n.split(' ').slice(-1)[0])}: ${p.pj} PJ, ${p.g} G, ${p.a} A`).join(' · ')}</p></div>`;
+    }
     const hon = [['g', 'Máximo goleador', 'goles'], ['a', 'Más asistencias', ''], ['cs', 'Más porterías a cero', ''], ['avg', 'Mejor media (15+ PJ)', '', 15], ['mvp', 'Más veces jugador del partido', ''], ['yc', 'Más amarillas', '']]
       .map(([k, t, u, mn]) => { const p = honor(k, mn || 0); return p ? `<div class="card kpi"><b style="font-size:18px">${jug(p.iu, p.n)}</b><span>${t} · ${k === 'avg' ? d2(p.avg) : p[k]}${u ? ' ' + u : ''}</span></div>` : ''; }).join('');
     const atMax = att.length ? att.reduce((a, b) => b.espectadores > a.espectadores ? b : a) : null;
@@ -392,6 +400,9 @@ const HIST = (() => {
 
   // noticias de la temporada que FM Hub ha ido guardando: las de ★ con su texto (si se abrió en FM y se pulsó «Guardar» en la
   // pastilla) y el resto de titulares sobre el club, el mánager y los jugadores. En la web local: ★ y ocultar
+  // qué noticias (y secciones de noticias) están abiertas: al repintar (tras ★, ✕…) siguen abiertas
+  const NA = new Set();
+  document.addEventListener('toggle', ev => { const k = ev.target?.dataset?.nk; if (k) ev.target.open ? NA.add(k) : NA.delete(k); }, true);
   function noticiasTemporada(t) {
     // la fecha de la noticia si se dedujo (la del partido del que habla, #96); si no, el día en que FM Hub la vio
     const ns = (D.noticias || []).filter(n => n.temporada === t).sort((a, b) => (a.fecha || a.visto).localeCompare(b.fecha || b.visto));
@@ -411,13 +422,16 @@ const HIST = (() => {
     const textoDe = n => txt.find(x => x.titular === n.clave);
     const guardadas = [...tit.filter(n => n.estado === 'guardada'), ...txt.filter(x => x.estado === 'guardada' && !tit.some(n => n.clave === x.titular && n.estado === 'guardada'))];
     const resto = tit.filter(n => n.estado !== 'guardada');
+    // cada noticia se despliega al tocar su titular (#110); los botones, dentro (en el titular lo plegarían)
     const tarjeta = n => { const cuerpo = n.tipo === 'texto' ? n : textoDe(n);
-      return `<div class="card" style="margin-bottom:10px"><div style="display:flex;gap:10px;justify-content:space-between;align-items:start"><b>${n.tipo === 'texto' ? esc(n.texto.split(/(?<=[.!?])\s/)[0]) : conEnlaces(n, n.texto)}</b>${botones(n)}</div>
-        <div class="mini">${cuando(n)}</div>${cuerpo ? parrafos(cuerpo) : `<p class="mini" style="margin:6px 0 0">Solo el titular: si quieres el texto, ábrela en FM y pulsa «★ Guardar la noticia que tengo abierta» en la pastilla.</p>`}</div>`; };
-    return `<h4>Noticias · ${guardadas.length} guardadas · ${tit.length} titulares</h4>${guardadas.map(tarjeta).join('')}
+      return `<details class="card noticia" data-nk="${n.clave}"${NA.has(n.clave) ? ' open' : ''}><summary><b>${n.tipo === 'texto' ? esc(n.texto.split(/(?<=[.!?])\s/)[0]) : conEnlaces(n, n.texto)}</b> <span class="mini">· ${cuando(n)}${cuerpo ? '' : ' · solo titular'}</span></summary>
+        ${cuerpo ? parrafos(cuerpo) : `<p class="mini" style="margin:6px 0 0;color:var(--gold)">⚑ Falta el texto: abre esta noticia en FM y, en la pastilla, «★ Guardar la noticia que tengo abierta» con unas palabras del titular.</p>`}
+        ${local ? `<div class="fila-btn" style="margin-top:6px">${botones(n)}${cuerpo && n.tipo === 'titular' ? `<button class="chip" data-hnot="${cuerpo.clave}" data-hest="desunir" title="Este texto es de otra noticia">No es este texto</button>` : ''}</div>` : ''}</details>`; };
+    // la sección entera también se pliega (plegada al entrar: con su recuento a la vista)
+    return `<details class="cant noticias" data-nk="sec-${t}"${NA.has('sec-' + t) ? ' open' : ''}><summary><h4 style="display:inline">Noticias · ${guardadas.length} guardadas · ${tit.length} titulares</h4></summary>${guardadas.map(tarjeta).join('')}
       ${resto.length ? `<details class="cant"${guardadas.length ? '' : ' open'}><summary>${resto.length} ${resto.length === 1 ? 'titular' : 'titulares'} sobre el club, el mánager y los jugadores${local ? ' (☆ para guardarlo, ✕ para quitarlo)' : ''}</summary>
         ${resto.slice().reverse().map(n => `<div class="tri" style="grid-template-columns:96px 1fr auto"><span class="mini">${cuando(n)}</span><span>${conEnlaces(n, n.texto)}${textoDe(n) ? ' <span class="mini">(con texto)</span>' : ''}</span>${botones(n)}</div>`).join('')}</details>` : ''}
-      <p class="mini">FM Hub guarda solo los titulares de las noticias sobre el club, el mánager y los jugadores (FM solo tiene en memoria las recientes). La fecha es la del partido del que hablan si se puede deducir; si no, el día en que FM Hub las vio. El texto entero, el de las que guardas desde la pastilla con la noticia abierta (con unas palabras de su titular, para que sea esa).</p>`;
+      <p class="mini">FM Hub guarda solo los titulares de las noticias sobre el club, el mánager y los jugadores (FM solo tiene en memoria las recientes). La fecha es la del partido del que hablan si se puede deducir; si no, el día en que FM Hub las vio. El texto entero, el de las que guardas desde la pastilla con la noticia abierta (con unas palabras de su titular, para que sea esa).</p></details>`;
   }
 
   // ---------------------------------------------------------------- 04 · Rivales
@@ -567,6 +581,47 @@ const HIST = (() => {
     }
     return out;
   }
+  // lo que ha sido un jugador para el club y el club para él (#119): su peso en los partidos y goles del equipo en sus
+  // temporadas, su puesto en la historia del club y qué parte de su carrera (la tabla de carrera de FM) es el Dartford
+  function importancia(iu) {
+    const tc = totalesClub(), j = tc.find(x => x.iu === iu);
+    if (!j || !j.pj) return '';
+    const pos = k => 1 + tc.filter(x => x[k] > j[k]).length;
+    const temps = [...j.temps];
+    const ofi = IDX.partidos.filter(p => p.oficial && temps.includes(p.temporada));
+    const golesEq = ofi.reduce((a, p) => a + p.gf, 0);
+    const pctPJ = ofi.length ? Math.min(100, Math.round(j.pj / ofi.length * 100)) : null, pctG = golesEq ? Math.round(j.g / golesEq * 100) : null;
+    const tits = titulos().filter(x => temps.includes(x.t));
+    const carrera = D.historial.filter(h => h.iu === iu && h.tipo === 'total');
+    const totalCarrera = carrera.reduce((a, h) => a + (h.partidos || 0), 0);
+    const pctCarrera = totalCarrera ? Math.min(100, Math.round(j.pj / Math.max(totalCarrera, j.pj) * 100)) : null;
+    const clubes = new Set(carrera.filter(h => h.club && h.partidos).map(h => h.club)).size;
+    // una etiqueta: por puesto en la historia del club y peso en los partidos de su etapa
+    const nota = (pos('pj') <= 5 ? 3 : pos('pj') <= 15 ? 2 : 0) + (pos('g') <= 5 && j.g ? 2 : 0) + (pctPJ >= 60 ? 2 : pctPJ >= 35 ? 1 : 0) + (temps.length >= 4 ? 2 : temps.length >= 2 ? 1 : 0) + Math.min(2, tits.length);
+    const etiqueta = nota >= 8 ? 'Leyenda del club' : nota >= 6 ? 'Jugador clave' : nota >= 4 ? 'Importante' : nota >= 2 ? 'De rotación' : 'De paso';
+    const fila = (k, v) => `<div class="tri" style="grid-template-columns:1fr auto"><span>${k}</span><span class="f">${v}</span></div>`;
+    return `<h4>Él y el ${esc(IDX.club)}</h4><div class="cols2"><div class="card"><h4 style="margin-top:0">Para el ${esc(IDX.club)} · <span style="color:var(--gold)">${etiqueta}</span></h4>
+        ${fila('Partidos con el club', `${j.pj} · ${pos('pj')}º de la historia guardada`)}${fila('Goles con el club', `${j.g} · ${pos('g')}º`)}
+        ${pctPJ !== null ? fila('De los partidos oficiales de sus temporadas', pctPJ + '%') : ''}${pctG !== null ? fila('De los goles del equipo en sus temporadas', pctG + '%') : ''}
+        ${fila('Temporadas', `${temps.length} (${esc(temps.sort()[0])}${temps.length > 1 ? '–' + esc(temps[temps.length - 1]) : ''})`)}
+        ${fila('Títulos en su etapa', tits.length ? tits.map(x => esc(x.nombre) + ' ' + esc(x.t)).join(', ') : 'ninguno')}</div>
+      <div class="card"><h4 style="margin-top:0">El ${esc(IDX.club)} en su carrera</h4>
+        ${pctCarrera !== null ? fila('De todos sus partidos (tabla de carrera)', pctCarrera + '%') + fila('Partidos en toda su carrera', Math.max(totalCarrera, j.pj)) : fila('Su carrera', 'sin tabla de carrera guardada')}
+        ${clubes ? fila('Clubes en su carrera', clubes) : ''}
+        <p class="mini" style="margin:8px 0 0">La carrera es la que FM Hub tiene de su tabla de carrera (ábrela en FM para tenerla completa).</p></div></div>`;
+  }
+  // Varela y el club (#119): lo mismo para el mánager
+  function importanciaManager() {
+    const of = IDX.partidos.filter(p => p.oficial);
+    if (!of.length) return '';
+    const v = of.filter(p => p.res === 'W').length, ss = S(), tits = titulos();
+    const asc = ss.filter((s, i) => i < ss.length - 1 && s.lg && ss[i + 1].lg && (NIVEL_LIGA[ss[i + 1].liga] || 9) < (NIVEL_LIGA[s.liga] || 9)).length;
+    const fila = (k, x) => `<div class="tri" style="grid-template-columns:1fr auto"><span>${k}</span><span class="f">${x}</span></div>`;
+    return `<div class="card" style="margin-top:14px"><h4 style="margin-top:0">Varela y el ${esc(IDX.club)}</h4>
+      ${fila('Temporadas', ss.length)}${fila('Partidos oficiales', `${of.length} · ${Math.round(v / of.length * 100)}% de victorias`)}
+      ${fila('Títulos', tits.length)}${fila('Ascensos', asc)}${fila('Premios de mánager', (D.premios || []).filter(p => p.manager).length)}
+      ${fila('El club en su carrera', 'toda: es el único club que ha entrenado (desde 2023)')}</div>`;
+  }
   function totalesClub() {
     const o = {};
     for (const h of D.historial) {
@@ -667,7 +722,7 @@ const HIST = (() => {
       <p class="sub">La línea del tiempo del club bajo Varela y los récords, calculados con todos los partidos, plantillas y traspasos guardados.</p>
       <div class="cols2"><div class="card"><h4 style="margin-top:0">Línea del tiempo</h4><div class="tl">${ev.map(([f, t]) => `<div class="it"><div class="dt">${fecha(f)}</div><div class="tx">${esc(t)}</div></div>`).join('')}</div></div>
       <div><div class="card"><h4 style="margin-top:0">Récords del club</h4>${R.map(r => `<div class="tri" style="grid-template-columns:1fr auto"><span>${esc(r[0])}</span><span class="f">${esc(r[1])}</span></div>`).join('')}</div>
-      ${recordsLigas()}
+      ${importanciaManager()}${recordsLigas()}
       ${(D.premios || []).length ? `<div class="card" style="margin-top:14px"><h4 style="margin-top:0">Premios · ${D.premios.length}</h4>${premiosAgrupados()}
         <p class="mini">Del mánager y de los jugadores: FM Hub los lee de las noticias del juego (los de antes de usarlo, solo si la noticia sigue en el juego). Cada premio, con los partidos de ese mes.</p></div>` : ''}
       ${mejorOnce()}</div></div></div></section>`;
@@ -705,11 +760,11 @@ const HIST = (() => {
     const anterior = (c, r) => (ant[c] || []).filter(a => a.tipo === r.tipo && a.batido <= (r.visto || '9')).pop();
     const batidos = c => (ant[c] || []).filter(a => a.club === IDX.club && !(por[c] || []).some(r => r.tipo === a.tipo && r.club === IDX.club))
       .map(a => { const ahora = (por[c] || []).find(r => r.tipo === a.tipo);
-        return `<div class="tri" style="grid-template-columns:1fr auto;opacity:.8"><span>☆ ${esc(a.nombre)} <span class="mini">(anterior récord)</span></span><span class="f">${a.valor} · <b>${esc(a.club)}</b> <span class="mini">${esc(cuando(a))} · récord durante ${duracion(logrado(a), a.batido) || '—'}${ahora ? `, batido por ${esc(ahora.club)} (${ahora.valor})` : ''}</span></span></div>`; }).join('');
+        return `<div class="tri rl" style="grid-template-columns:1fr auto;opacity:.8"><span>☆ ${esc(a.nombre)} <span class="mini">(anterior récord)</span></span><span class="f">${a.valor} · <b>${esc(a.club)}</b> <span class="mini">${esc(cuando(a))} · récord durante ${duracion(logrado(a), a.batido) || '—'}${ahora ? `, batido por ${esc(ahora.club)} (${ahora.valor})` : ''}</span></span></div>`; }).join('');
     return `<div class="card" style="margin-top:14px"><h4 style="margin-top:0">Récords de las ligas</h4>${comps.map(c => {
       const nuestros = por[c].filter(r => r.club === IDX.club).length, viejos = batidos(c);
       return `<details class="cant"${nuestros || viejos ? ' open' : ''}><summary><b>${esc(c)}</b>${nuestros ? ` · ${nuestros} ${nuestros === 1 ? 'récord vuestro' : 'récords vuestros'}` : ''}${viejos ? ` · ${(viejos.match(/☆/g) || []).length} batido${(viejos.match(/☆/g) || []).length === 1 ? '' : 's'}` : ''}</summary>
-        ${por[c].map(r => `<div class="tri" style="grid-template-columns:1fr auto"><span>${r.club === IDX.club ? '★ ' : ''}${esc(r.nombre)}</span><span class="f">${r.valor} · ${r.club === IDX.club ? `<b>${esc(r.club)}</b>` : esc(r.club)} <span class="mini">${esc(cuando(r))}${r.solo_desde_2023 ? ' *' : ''}${(a => a ? ` · superó el de ${esc(a.club)} (${a.valor}), que duró ${duracion(logrado(a), a.batido) || '—'}` : '')(anterior(c, r))}</span></span></div>`).join('')}${viejos}</details>`;
+        ${por[c].map(r => `<div class="tri rl" style="grid-template-columns:1fr auto"><span>${r.club === IDX.club ? '★ ' : ''}${esc(r.nombre)}</span><span class="f">${r.valor} · ${r.club === IDX.club ? `<b>${esc(r.club)}</b>` : esc(r.club)} <span class="mini">${esc(cuando(r))}${r.solo_desde_2023 ? ' *' : ''}${(a => a ? ` · superó el de ${esc(a.club)} (${a.valor}), que duró ${duracion(logrado(a), a.batido) || '—'}` : '')(anterior(c, r))}</span></span></div>`).join('')}${viejos}</details>`;
     }).join('')}${pend ? `<p class="sub" style="margin:8px 0 0;color:var(--gold)">⚑ ${esc(pend.texto)}</p>` : ''}<p class="mini">De la pantalla Historial → Récords de cada liga (FM Hub los lee cuando están en la memoria del juego: abre esa pantalla una vez por liga). * Solo vale desde el 3/7/2023.</p></div>`;
   }
   function mejorOnce() {
@@ -924,7 +979,53 @@ const HIST = (() => {
       <h4>7 · Otras cosas a vigilar</h4><div class="pgrid">
         ${card('now', 'Renovaciones', 'Cuándo acaban los contratos', Object.entries(porAño).sort().map(([a, n]) => `${n} en ${a}`).join(' · ') + '. A quien vayas a conservar, renuévalo antes de que le quede un año y pierda valor de venta.')}
         ${card('min', 'Masa salarial por rendimiento', 'Quién cobra más', caros.map(f => `${esc(f.n)} (${miles(f.sueldo)} €, media ${f.nota ? d2(f.nota) : '—, aún sin jugar'})`).join(' · ') + '. Es lo primero que mirar si hay que recortar.')}</div>
-    </div></section>`;
+    </div>
+      <h4>8 · Dorsales</h4>${dorsales()}</div></section>`;
+  }
+
+  // dorsales (#118): cada número con significado (1 portero, 9 delantero centro, 7 y 11 bandas…) para el más importante
+  // de su puesto. Solo se propone un cambio si el dueño actual no es de ese puesto o es claramente menos importante; quien
+  // lo lleva desde hace 2 temporadas o más lo conserva (no siempre hay que cambiar).
+  function dorsales() {
+    const actual = {}, temps = {};
+    const tempDeF = f => { const a = +f.slice(0, 4), m = +f.slice(5, 7), i = m >= 7 ? a : a - 1; return `${i}/${String(i + 1).slice(2)}`; };
+    const inf = [...(D.partido_informe || [])].filter(r => r.iu && r.dorsal).sort((a, b) => a.fecha.localeCompare(b.fecha));
+    for (const r of inf) { actual[r.iu] = +r.dorsal; ((temps[r.iu] ||= {})[+r.dorsal] ||= new Set()).add(tempDeF(r.fecha)); }
+    for (const p of D.plantilla) if (!actual[p.iu] && IDX.export[p.iu]?.dorsal) actual[p.iu] = +IDX.export[p.iu].dorsal;
+    const tc = Object.fromEntries(totalesClub().map(j => [j.iu, j]));
+    const sq = D.plantilla.filter(p => !p.cedido_a).map(p => {
+      const pos = (IDX.export[p.iu]?.posicion || p.posicion || '').toUpperCase(), st = IDX.stats[p.iu]?.total || {}, j = tc[p.iu] || {};
+      const imp = (st.minutos || 0) / 90 + (j.pj || 0) * .3 + ((st.nota_media || j.avg || 6.6) - 6.6) * 12;
+      return {iu: p.iu, n: p.nombre, pos, imp, dorsal: actual[p.iu] || null, anos: actual[p.iu] ? (temps[p.iu]?.[actual[p.iu]]?.size || 1) : 0};
+    });
+    const es = (p, re) => re.test(p.pos);
+    const PUESTOS = [[1, 'portero', /^POR/], [9, 'delantero centro', /DL/], [10, 'mediapunta', /MP \([^)]*C/], [7, 'banda derecha', /(ME|MP) \([^)]*D/],
+                     [11, 'banda izquierda', /(ME|MP) \([^)]*I/], [8, 'mediocentro', /MC/], [4, 'central', /DF \([^)]*C/], [5, 'central', /DF \([^)]*C/],
+                     [6, 'mediocentro defensivo', /MCD|MC/], [2, 'lateral derecho', /(DF|CR) \([^)]*D/], [3, 'lateral izquierdo', /(DF|CR) \([^)]*I/]];
+    const usados = new Set(), filas = [];
+    // quien ya lleva un número clásico de su puesto no se mueve a otro (Jenks con el 6 no pasa al 8: no siempre hay que cambiar)
+    const encaja = (p, num) => PUESTOS.some(([n, , re]) => n === num && es(p, re));
+    const asentado = p => p.dorsal >= 1 && p.dorsal <= 11 && encaja(p, p.dorsal);
+    for (const [n, que, re] of PUESTOS) {
+      const dueno = sq.find(p => p.dorsal === n);
+      const mejor = sq.filter(p => es(p, re) && !usados.has(p.iu) && (!asentado(p) || p.dorsal === n)).sort((a, b) => b.imp - a.imp)[0];
+      if (!mejor) continue;
+      // se queda quien es de ese puesto y lo lleva 2+ temporadas (o no es mucho menos importante), y quien lo lleva 3+ temporadas
+      // aunque no sea de ese puesto: ese número ya es suyo
+      const mantiene = dueno && !usados.has(dueno.iu) && (dueno.anos >= 3 || es(dueno, re) && (dueno.anos >= 2 || dueno.imp >= mejor.imp * .6 || dueno.iu === mejor.iu));
+      const elegido = mantiene ? dueno : mejor;
+      usados.add(elegido.iu);
+      if (mantiene || elegido.dorsal === n) { filas.push({n, que, ok: true, p: elegido}); continue; }
+      const por = !dueno ? 'está libre' : !es(dueno, re) ? `${dueno.n.split(' ').slice(-1)[0]} no juega de ${que}` : `es bastante más importante que ${dueno.n.split(' ').slice(-1)[0]}`;
+      filas.push({n, que, ok: false, p: elegido, dueno, por});
+    }
+    const cambios = filas.filter(f => !f.ok), ocupados = new Set(sq.map(p => p.dorsal).filter(Boolean));
+    const libres = Array.from({length: 40}, (_, i) => i + 1).filter(n => !ocupados.has(n)).slice(0, 12);
+    return `<div class="card">${cambios.length ? cambios.map(f => `<div class="tri" style="grid-template-columns:44px 1fr"><b style="font:800 20px Archivo;color:var(--gold)">${f.n}</b>
+        <span>${jug(f.p.iu, f.p.n)}${f.p.dorsal ? ` <span class="mini">(ahora el ${f.p.dorsal})</span>` : ''} para el ${f.n} de ${f.que}: ${esc(f.por)}${f.dueno ? `. ${esc(f.dueno.n)} ${(o => o ? `pasa al ${o.n}` : `pasaría a otro número${f.p.dorsal ? ` (p. ej. el ${f.p.dorsal}, que queda libre)` : ''}`)(cambios.find(c => c.p.iu === f.dueno.iu))}` : ''}.</span></div>`).join('')
+        : '<p class="sub" style="margin:0">Ningún cambio: cada número importante ya lo lleva quien le corresponde (o quien lo lleva desde hace años).</p>'}
+      <p class="mini" style="margin:10px 0 0">Se quedan como están: ${filas.filter(f => f.ok).map(f => `${f.n} ${esc(f.p.n.split(' ').slice(-1)[0])}`).join(' · ') || '—'}. Libres: ${libres.join(', ') || '—'}.
+        Importancia = minutos de esta temporada + partidos con el club + nota media. Quien lleva su número 2 temporadas o más lo conserva, y 3 o más aunque no sea de ese puesto. Dorsales: los de los informes de los partidos (o la última exportación).</p></div>`;
   }
 
   // ---------------------------------------------------------------- 09b · Renovaciones: a quién, por cuánto y por cuántos años
@@ -1113,7 +1214,8 @@ const HIST = (() => {
       fetch('api/noticias', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({clave: ds.hnot, estado})})
         .then(r => { if (!r.ok) throw new Error(r.status); }).catch(() => alert('No se pudo guardar el cambio: ¿está abierto FM Hub?'));
       if (n) {   // al momento en la web (como lo hace FM Hub: un titular con ★ se lleva su texto)
-        if (estado === 'oculta') D.noticias = D.noticias.filter(x => x !== n);
+        if (estado === 'desunir') { n.titular = null; n.fijo = null; }
+        else if (estado === 'oculta') D.noticias = D.noticias.filter(x => x !== n);
         else { n.estado = estado; if (estado === 'guardada') for (const x of D.noticias) if (x.titular === n.clave || x.clave === n.titular) x.estado = 'guardada'; }
       }
     }
@@ -1126,5 +1228,5 @@ const HIST = (() => {
     if (ev.target.id === 'rvQ' && ev.target.value) location.hash = 'rivales/' + encodeURIComponent(ev.target.value);
   });
 
-  return {S, proximo, recordsPendientes, ronda, titulos, entradilla, notas, viaje, temporadas, rivales, goles, hitos, rentabilidad, economia, plan, trayectoria, records, exportacion, escalera, bigsPalmares, cantera, enPlantilla};
+  return {S, importancia, proximo, recordsPendientes, ronda, titulos, entradilla, notas, viaje, temporadas, rivales, goles, hitos, rentabilidad, economia, plan, trayectoria, records, exportacion, escalera, bigsPalmares, cantera, enPlantilla};
 })();
