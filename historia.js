@@ -373,6 +373,7 @@ const HIST = (() => {
     if (hon) h += `<h4>Cuadro de honor</h4><div class="grid g4">${hon}${atMax ? `<div class="card kpi"><b style="font-size:18px">${miles(atMax.espectadores)}</b><span>Mayor asistencia · ${esc(atMax.rival)}, ${fecha(atMax.fecha)}</span></div>` : ''}</div>`;
     if (Object.keys(cupGrupos).length) { const tits = titulos(); h += `<h4>Copas y otras competiciones</h4><div class="card"><table class="copas"><tbody>${Object.entries(cupGrupos).map(([c, ps]) => { const u = ps[ps.length - 1], r = wdl(ps), gano = tits.some(x => x.f === u.fecha); return `<tr><td><b>${esc(c)}</b></td><td>${gano ? '<b style="color:var(--gold)">★ Campeón</b>' : esc(ronda(u) || '—')} · ${gano ? 'final' : 'eliminado'} ante el ${rivalLink(u.rival)} ${pillR(u)}${u.pen ? ' penaltis' + esc(u.pen) : ''}</td><td class="mini">${ps.length} partidos · ${r.w}V ${r.d}E ${r.l}D</td></tr>`; }).join('')}</tbody></table></div>`; }
     if (s.tabla.length) h += `<h4>Clasificación${s.completa ? ' final' : ''}</h4><div class="tw"><table><thead><tr><th class="n">Pos</th><th></th><th>Equipo</th><th class="n">PJ</th><th class="n">G</th><th class="n">E</th><th class="n">P</th><th class="n">GF</th><th class="n">GC</th><th class="n">DG</th><th class="n">Pts</th></tr></thead><tbody>${s.tabla.map(r => { const zz = z[r.club]; const me = r.club === IDX.club; return `<tr style="${me ? 'background:var(--goldbg);font-weight:700' : ''}"><td class="n">${r.pos}</td><td style="width:22px"><span class="pill" style="${zz === 'D' ? 'background:var(--lbg);color:var(--l)' : zz ? 'background:var(--wbg);color:var(--w)' : 'visibility:hidden'}">${zz || '·'}</span></td><td>${me ? esc(r.club) : rivalLink(r.club)}</td><td class="n">${r.j}</td><td class="n">${r.g}</td><td class="n">${r.e}</td><td class="n">${r.p}</td><td class="n">${r.gf}</td><td class="n">${r.gc}</td><td class="n">${r.gf - r.gc > 0 ? '+' : ''}${r.gf - r.gc}</td><td class="n"><b>${r.pts}</b></td></tr>`; }).join('')}</tbody></table></div><div class="legend"><span>C campeón · A ascenso · D descenso (deducidos de quién juega en qué liga la temporada siguiente)</span></div>`;
+    h += noticiasTemporada(s.t);
     const lista = comp.filter(p => filtroRes === 'all' || r90(p) === filtroRes);
     h += `<h4>Partido a partido · ${comp.length} encuentros</h4><div class="filters">${[['all', 'Cualquier resultado'], ['W', 'Victorias'], ['D', 'Empates'], ['L', 'Derrotas']].map(([k, t]) => `<button class="chip" data-hres="${k}" aria-pressed="${filtroRes === k}">${t}</button>`).join('')}</div>
       <div class="tw scroll"><table><thead><tr><th>Fecha</th><th>Competición</th><th>Rival</th><th class="n">Res.</th><th class="n">Asist.</th><th>Goleadores</th><th>Formación</th></tr></thead><tbody>${lista.map(p => `<tr class="r${r90(p)}"><td class="mono" style="font-size:12px">${fecha(p.fecha)}</td><td class="cmp">${p.ck === 'LG' ? 'Liga · J' + p.j : p.ck === 'PO' ? 'Playoff · ' + esc(ronda(p)) : esc(p.competicion) + (ronda(p) ? ' · ' + esc(ronda(p)) : '')}</td><td><span class="ha">${p.casa ? 'CASA' : 'FUERA'}</span>${rivalLink(p.rival)}</td><td class="n">${pillR(p)}</td><td class="n">${p.espectadores ? miles(p.espectadores) : '—'}</td><td class="sc">${golesTxt(p)}</td><td class="cmp">${esc(p.formacion || '')}</td></tr>`).join('') || '<tr><td colspan="7">Sin partidos con esos filtros.</td></tr>'}</tbody></table></div>`;
@@ -387,6 +388,34 @@ const HIST = (() => {
     }).join('')}</tbody></table></div>
       <p class="mini">Partidos y goles de la tabla de carrera de FM (todas las oficiales con el club). Sueldo, contrato, valor y posición: última ficha de esa temporada.</p></div></div></section>`;
     return h;
+  }
+
+  // noticias de la temporada que FM Hub ha ido guardando: las de ★ con su texto (si se abrió en FM y se pulsó «Guardar» en la
+  // pastilla) y el resto de titulares sobre el club, el mánager y los jugadores. En la web local: ★ y ocultar
+  function noticiasTemporada(t) {
+    const ns = (D.noticias || []).filter(n => n.temporada === t);
+    if (!ns.length) return '';
+    const local = !window.FMHUB_PUBLICADO && !window.FMHUB_ESTATICO;
+    const tit = ns.filter(n => n.tipo === 'titular'), txt = ns.filter(n => n.tipo === 'texto');
+    const conEnlaces = (n, linea) => {
+      const js = JSON.parse(n.enlaces || '[]').filter(e => e[3] && e[2]);
+      const m = new Map(js.map(e => [esc(e[2]), e[3]]));
+      if (!m.size) return esc(linea);
+      const re = new RegExp([...m.keys()].sort((a, b) => b.length - a.length).map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g');
+      return esc(linea).replace(re, k => `<a class="j" href="#jugador/${m.get(k)}">${k}</a>`);   // k ya va escapado
+    };
+    const parrafos = n => n.texto.split('\n').map(x => `<p style="margin:6px 0">${conEnlaces(n, x)}</p>`).join('');
+    const botones = n => local ? `<span style="white-space:nowrap"><button class="chip" data-hnot="${n.clave}" data-hest="${n.estado === 'guardada' ? '' : 'guardada'}" title="${n.estado === 'guardada' ? 'Quitar de guardadas' : 'Guardar'}">${n.estado === 'guardada' ? '★' : '☆'}</button> <button class="chip" data-hnot="${n.clave}" data-hest="oculta" title="Ocultar">✕</button></span>` : '';
+    const textoDe = n => txt.find(x => x.titular === n.clave);
+    const guardadas = [...tit.filter(n => n.estado === 'guardada'), ...txt.filter(x => x.estado === 'guardada' && !tit.some(n => n.clave === x.titular && n.estado === 'guardada'))];
+    const resto = tit.filter(n => n.estado !== 'guardada');
+    const tarjeta = n => { const cuerpo = n.tipo === 'texto' ? n : textoDe(n);
+      return `<div class="card" style="margin-bottom:10px"><div style="display:flex;gap:10px;justify-content:space-between;align-items:start"><b>${n.tipo === 'texto' ? esc(n.texto.split(/(?<=[.!?])\s/)[0]) : conEnlaces(n, n.texto)}</b>${botones(n)}</div>
+        <div class="mini">Vista el ${fecha(n.visto)}</div>${cuerpo ? parrafos(cuerpo) : `<p class="mini" style="margin:6px 0 0">Solo el titular: si quieres el texto, ábrela en FM y pulsa «★ Guardar la noticia que tengo abierta» en la pastilla.</p>`}</div>`; };
+    return `<h4>Noticias · ${guardadas.length} guardadas · ${tit.length} titulares</h4>${guardadas.map(tarjeta).join('')}
+      ${resto.length ? `<details class="cant"${guardadas.length ? '' : ' open'}><summary>${resto.length} ${resto.length === 1 ? 'titular' : 'titulares'} sobre el club, el mánager y los jugadores${local ? ' (☆ para guardarlo, ✕ para quitarlo)' : ''}</summary>
+        ${resto.slice().reverse().map(n => `<div class="tri" style="grid-template-columns:76px 1fr auto"><span class="mini">${fecha(n.visto)}</span><span>${conEnlaces(n, n.texto)}${textoDe(n) ? ' <span class="mini">(con texto)</span>' : ''}</span>${botones(n)}</div>`).join('')}</details>` : ''}
+      <p class="mini">FM Hub guarda solo los titulares de las noticias sobre el club, el mánager y los jugadores, con la fecha de juego en que las vio (FM solo tiene en memoria las recientes). El texto entero, el de las que guardas desde la pastilla con la noticia abierta.</p>`;
   }
 
   // ---------------------------------------------------------------- 04 · Rivales
@@ -1062,6 +1091,15 @@ const HIST = (() => {
     else if (ds.hgs !== undefined) golesSel = +ds.hgs;
     else if (ds.hcalc) { const iu = +ds.hcalc; calcSel.has(iu) ? calcSel.delete(iu) : calcSel.add(iu); }
     else if (ds.htop) topF = ds.htop;
+    else if (ds.hnot) {
+      const n = (D.noticias || []).find(x => x.clave === ds.hnot), estado = ds.hest || null;
+      fetch('api/noticias', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({clave: ds.hnot, estado})})
+        .then(r => { if (!r.ok) throw new Error(r.status); }).catch(() => alert('No se pudo guardar el cambio: ¿está abierto FM Hub?'));
+      if (n) {   // al momento en la web (como lo hace FM Hub: un titular con ★ se lleva su texto)
+        if (estado === 'oculta') D.noticias = D.noticias.filter(x => x !== n);
+        else { n.estado = estado; if (estado === 'guardada') for (const x of D.noticias) if (x.titular === n.clave || x.clave === n.titular) x.estado = 'guardada'; }
+      }
+    }
     else return;
     pintar();
   });
