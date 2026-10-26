@@ -567,10 +567,10 @@ V.partidos = () => {
       {k: 'gol', t: 'Goleadores', cls: 'sc', h: golesTexto},
       {k: 'mvp', t: 'MVP', cls: 'sc', v: p => IDX.nombres[IDX.mvp[p.fecha]?.iu] || (IDX.mvpRival.has(p.fecha) ? 'rival' : ''), h: p => IDX.mvp[p.fecha] ? `★ ${jug(IDX.mvp[p.fecha].iu)}${IDX.mvp[p.fecha].seguro ? '' : ' <span class="mini" title="Deducido: la mejor nota del partido, cuadrado con los MVP de su tabla de carrera">≈</span>'}`
         : IDX.mvpRival.has(p.fecha) ? '<span class="mini" title="FM dio el jugador del partido a uno del rival">del rival</span>' : p.oficial ? '<span class="mini" title="Sin datos de ese partido para saberlo">–</span>' : ''},
-      {k: 'formacion', t: 'Formación', cls: 'cmp', h: p => esc(p.formacion || IDX.informe[p.fecha]?.[0]?.formacion || '') + (p.formacionAprendida ? ' <span class="mini" title="Sin exportación de ese partido: el nombre que FM dio a ese mismo once en los partidos exportados">≈</span>' : '') + (p.formacion_rival ? `<br><span class="mini">rival: ${esc(p.formacion_rival)}</span>` : '')},
-      // una sola columna (#116): «Ver once» si hay informe; si no, los nombres de la alineación exportada, si la hay
+      // una sola columna (#116), antes de la formación (#127): «Ver once» si hay informe; si no, los nombres de la alineación exportada, si la hay
       ...(D.partido_informe?.length || D.alineaciones?.length ? [{k: 'once', t: 'Once', h: p => IDX.informe[p.fecha] ? `<button class="chip" data-once="${p.fecha}">Ver once</button>`
         : (IDX.alin[p.fecha] || []).length ? `<span class="mini">${IDX.alin[p.fecha].map(a => jug(a.iu, a.jugador)).join(', ')}</span>` : '<span class="mini">—</span>'}] : []),
+      {k: 'formacion', t: 'Formación', cls: 'cmp', h: p => esc(p.formacion || IDX.informe[p.fecha]?.[0]?.formacion || '') + (p.formacionAprendida ? ' <span class="mini" title="Sin exportación de ese partido: el nombre que FM dio a ese mismo once en los partidos exportados">≈</span>' : '') + (p.formacion_rival ? `<br><span class="mini">rival: ${esc(p.formacion_rival)}</span>` : '')},
     ], ps.map(p => ({...p, _cls: 'r' + p.res})), {k: 'fecha', d: 1})}
   </div></section>`;
 };
@@ -704,10 +704,15 @@ V.jugador = iu => {
   const golA = portero ? [{k: 'enc', t: 'Encajados', n: 1, v: r => J(r.detalle).goles_encajados, h: r => J(r.detalle).goles_encajados ?? '–'},
                           {k: 'pac', t: 'Porterías a cero', n: 1, v: r => J(r.detalle).porterias_a_cero, h: r => J(r.detalle).porterias_a_cero ?? '–'}]
                        : [{k: 'goles', t: 'Gol', n: 1}, {k: 'asistencias', t: 'Asis', n: 1}];
-  const temporada = Object.keys(s).length ? tabla('jt' + iu, [{k: 'tipo', t: 'Competición'}, {k: 'partidos', t: 'PJ', n: 1}, {k: 'titular', t: 'Tit', n: 1},
+  const colsT = [{k: 'tipo', t: 'Competición'}, {k: 'partidos', t: 'PJ', n: 1}, {k: 'titular', t: 'Tit', n: 1},
     {k: 'minutos', t: 'Min', n: 1}, ...golA, {k: 'amarillas', t: 'Am', n: 1}, {k: 'rojas', t: 'Roj', n: 1},
-    {k: 'nota_media', t: 'Nota', n: 1, h: r => r.nota_media ? r.nota_media.toFixed(2) : '–'}, {k: 'xg', t: 'xG', n: 1, h: r => J(r.detalle).xg ?? '–'}],
-    tipos.filter(t => s[t]).map(t => s[t])) : '<p class="vacio">Sin estadísticas de esta temporada.</p>';
+    {k: 'nota_media', t: 'Nota', n: 1, h: r => r.nota_media ? r.nota_media.toFixed(2) : '–'}, {k: 'xg', t: 'xG', n: 1, h: r => J(r.detalle).xg ?? '–'}];
+  const temporada = Object.keys(s).length ? tabla('jt' + iu, colsT, tipos.filter(t => s[t]).map(t => s[t])) : '<p class="vacio">Sin estadísticas de esta temporada.</p>';
+  // las temporadas acabadas, por competición, de la última lectura de cada una (#132)
+  const porT = {};
+  for (const r of D.estadisticas_temporadas || []) if (r.iu === iu) (porT[r.temporada] ||= {})[r.tipo] = r;
+  const pasadas = Object.keys(porT).sort().reverse().map(t => `<details class="cant"><summary><b>${esc(t)}</b> <span class="mini">· ${porT[t].total?.partidos ?? '–'} PJ · ${porT[t].total?.goles ?? 0} G · ${porT[t].total?.asistencias ?? 0} A</span></summary>
+    ${tabla('jt' + iu + t.replace('/', ''), colsT, tipos.filter(x => porT[t][x]).map(x => porT[t][x]))}</details>`).join('');
   const vistas = {}, filasC = [];
   const soloDart = !!V.jugador.dart;
   for (const h of IDX.historial[iu] || []) {
@@ -734,12 +739,13 @@ V.jugador = iu => {
     {k: 'titular', t: 'Tit', n: 1, h: r => r.titular ? 'sí' : 'no'}, {k: 'minutos', t: 'Min', n: 1}, {k: 'goles', t: 'Gol', n: 1}, {k: 'asistencias', t: 'Asis', n: 1},
     {k: 'amarillas', t: 'Am', n: 1}, {k: 'nota', t: 'Nota', n: 1}], pj, {k: 'fecha', d: -1}) : '<p class="mini">Se rellena solo partido a partido desde que FM Hub está en marcha.</p>';
   const mvps = (IDX.mvpDe[iu] || []).slice().sort().reverse().map(f => IDX.partidos.find(x => x.fecha === f)).filter(Boolean);
-  const mvpHtml = mvps.length ? `<h4>Jugador del partido · ${mvps.length}</h4><div class="mvps">${mvps.map(q => {
+  // plegable (#125): la lista de partidos puede ser larga
+  const mvpHtml = mvps.length ? `<details class="cant plegable"><summary><h4 style="display:inline">Jugador del partido · ${mvps.length}</h4></summary><div class="mvps">${mvps.map(q => {
     const nota = (IDX.informe[q.fecha] || []).find(r => r.iu === iu)?.nota;
     return `<div class="tri"><span class="d">${fecha(q.fecha)}</span><span>${pillRes(q)} ${q.casa ? 'ante el' : 'en casa del'} ${esc(q.rival)} <span class="mini">${esc(q.competicion)}${nota ? ' · nota ' + nota.toFixed(2).replace('.', ',') : ''}${IDX.mvp[q.fecha].seguro ? '' : ' · deducido'}</span></span>${IDX.informe[q.fecha] ? `<button class="chip" data-once="${q.fecha}">Ver once</button>` : ''}</div>`;
-  }).join('')}</div><p class="mini">«Deducido»: de antes de que FM Hub lo viera en directo; FM da el MVP a la mejor nota del partido y la tabla de carrera dice cuántos tuvo cada temporada.</p>` : '';
+  }).join('')}</div><p class="mini">«Deducido»: de antes de que FM Hub lo viera en directo; FM da el MVP a la mejor nota del partido y la tabla de carrera dice cuántos tuvo cada temporada.</p></details>` : '';
   const premiosJ = (IDX.premiosDe[iu] || []).slice().sort((a, b) => (b.periodo || '').localeCompare(a.periodo || ''));
-  const premiosHtml = premiosJ.length ? `<h4>Premios · ${premiosJ.length}</h4>${premiosJ.map(x => premioHtml(x)).join('')}` : '';
+  const premiosHtml = premiosJ.length ? `<details class="cant plegable"><summary><h4 style="display:inline">Premios · ${premiosJ.length}</h4></summary>${premiosJ.map(x => premioHtml(x)).join('')}</details>` : '';
   const meta = p ? [['Posición', x.posicion || '–'], ['Edad', edad(p.fecha_nacimiento) ?? '–'], ['Nacimiento', fecha(p.fecha_nacimiento)], ['Altura', p.altura_cm ? p.altura_cm + ' cm' : '–'],
     ['Sueldo', eur(p.sueldo_mes_eur) + '/mes'], ['Contrato hasta', fecha(p.fin_contrato)], ['Valor (pantalla)', x.valor || '–'], ['Cedido a', p.cedido_a || '–']] : [['Estado', 'exjugador']];
   return `<section><div class="wrap">
@@ -757,6 +763,7 @@ V.jugador = iu => {
     ${hist.length > 1 || (IDX.evol[iu] || []).length > 1 ? `<div class="cols2"><div class="card"><h4 style="margin-top:0">Suma de atributos en el tiempo</h4>${mini(hist.filter(h => Object.values(h.v).filter(x => x > 1).length >= 20).map(h => sumaAtr(h.v)))}<p class="mini">${hist.length} capturas con cambios.</p></div>
       <div class="card"><h4 style="margin-top:0">Nota media en las exportaciones</h4>${mini((IDX.evol[iu] || []).filter(e => e.nota_media).map(e => e.nota_media), v => Number(v).toFixed(2))}<p class="mini">Nota media de la temporada en cada exportación de plantilla (vuelve a empezar cada temporada).</p></div></div>` : ''}
     <h4>Temporada ${esc(IDX.temporadaActual)}</h4>${temporada}
+    ${pasadas ? `<h4>Temporadas anteriores (por competición)</h4>${pasadas}` : ''}
     <h4>Partido a partido</h4>${partidosJ}
     <h4>Carrera</h4>
     <div class="filters"><button class="chip" data-jc="1" aria-pressed="${soloDart}">Solo con el ${esc(IDX.club)}</button></div>
@@ -965,6 +972,35 @@ document.addEventListener('click', async ev => {
   } catch (e) { alert('No se pudo: ¿está abierto FM Hub?'); }
   cargarPartidas();
 });
+
+// ---------------------------------------------------------------- barra horizontal siempre a mano (#127)
+// En las tablas más anchas que la pantalla, una barra de desplazamiento pegada abajo mientras la tabla se ve (no hay que
+// ir al final de la tabla para moverla), sincronizada con ella.
+function barrasH() {
+  for (const tw of document.querySelectorAll('#vista .tw, #modal .tw')) {
+    const ancha = tw.scrollWidth > tw.clientWidth + 4;
+    let caja = tw.parentElement.classList.contains('tw-caja') ? tw.parentElement : null;
+    if (!ancha) { caja?.querySelector('.barra-h')?.remove(); continue; }
+    if (!caja) { caja = document.createElement('div'); caja.className = 'tw-caja'; tw.before(caja); caja.append(tw); }
+    let b = caja.querySelector('.barra-h');
+    if (!b) {
+      b = document.createElement('div'); b.className = 'barra-h'; b.innerHTML = '<div></div>'; b.setAttribute('aria-hidden', 'true');
+      caja.append(b);
+      // cada una mueve a la otra; el movimiento que llega de vuelta se ignora (solo se marca si de verdad hay que moverla)
+      let eco = false;
+      const sigue = (de, a) => () => { if (eco) { eco = false; return; } if (a.scrollLeft !== de.scrollLeft) { eco = true; a.scrollLeft = de.scrollLeft; } };
+      b.addEventListener('scroll', sigue(b, tw));
+      tw.addEventListener('scroll', sigue(tw, b));
+    }
+    b.firstChild.style.width = tw.scrollWidth + 'px';
+    b.scrollLeft = tw.scrollLeft;
+  }
+}
+let barrasPend = null;
+const pedirBarras = () => { clearTimeout(barrasPend); barrasPend = setTimeout(barrasH, 120); };
+new MutationObserver(m => { if (m.some(x => ![...x.addedNodes].every(n => n.classList?.contains('barra-h') || n.classList?.contains('tw-caja')))) pedirBarras(); })
+  .observe(document.getElementById('vista'), {childList: true, subtree: true});
+window.addEventListener('resize', pedirBarras);
 
 // ---------------------------------------------------------------- barra de iconos del móvil (#121)
 // En el móvil el menú de texto de arriba se cambia por una barra fija abajo con iconos: las secciones más usadas y «Más»,

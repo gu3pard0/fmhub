@@ -297,7 +297,7 @@ table.cmp{table-layout:fixed;width:100%;min-width:520px}table.cmp th:first-child
 
 /* móvil: en las tablas, el jugador solo con su apellido y la primera columna más estrecha (#111, #113) */
 @media (max-width:560px){
-  .tw .np{display:none}
+  .tw a.j>span.np{display:none!important}
   .tw td:first-child{max-width:128px;overflow:hidden;text-overflow:ellipsis}
   .tw td:first-child .ha{display:none}
   .tw table{font-size:13px}
@@ -337,3 +337,14 @@ details.noticia>summary::-webkit-details-marker{display:none}
 details.noticia>summary::before{content:'▸ ';color:var(--gold)}
 details.noticia[open]>summary::before{content:'▾ '}
 details.noticias>summary{cursor:pointer;margin:18px 0 8px}
+
+/* apartados plegables de la ficha (#125) */
+details.plegable>summary{cursor:pointer;margin:18px 0 8px}
+/* el nombre de pila va aparte solo para poder ocultarlo en las tablas del móvil: en lo demás, igual que el apellido (#126) */
+a.j>span.np{font:inherit!important;color:inherit!important;letter-spacing:inherit!important;text-transform:inherit!important;display:inline}
+
+/* barra horizontal pegada abajo en las tablas anchas (#127) */
+.tw-caja{position:relative}
+.barra-h{position:sticky;bottom:0;z-index:3;overflow-x:auto;overflow-y:hidden;height:14px;margin-top:-1px;background:color-mix(in srgb,var(--bg) 88%,transparent);border-radius:0 0 10px 10px}
+.barra-h>div{height:1px}
+@media (max-width:560px){.barra-h{bottom:calc(64px + env(safe-area-inset-bottom));height:12px}}

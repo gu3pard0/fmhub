@@ -661,6 +661,8 @@ const TAC = (() => {
       else {
         // en su primera temporada aún es pronto para juzgar si juega poco: se marca, pero no se propone vender
         if (!tit && p.sueldo_mes_eur >= mSueldo * 1.2 && r.minA <= maxMin * .35) acc.push(r.nuevo ? 'nuevo' : 'vender');
+        // el mismo veredicto que el Plan de plantilla: si allí sale como venta, aquí no se propone renovar (#133)
+        else if (typeof HIST !== 'undefined' && HIST.etiquetaPlan?.(p.iu) === 'sale') acc.push('vender');
         const vende = acc.includes('vender');
         if (!vende && acaba && (tit || (r.n && r.n >= mNota))) acc.push('renovar');
         else if (!vende && acaba && !tit && !(e <= 21)) acc.push('dejar');
