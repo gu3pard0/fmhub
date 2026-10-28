@@ -163,7 +163,9 @@ function preparar() {
   }
   for (const r of [...(D.partido_informe || []), ...D.partido_jugador]) if (r.iu && r.fecha) (jugoEn[r.iu] ||= new Set()).add(tempDeF(r.fecha));
   IDX.ajenas = 0;
+  const revisado = new Set(D.historial_revisado || []);   // su historial se volvió a copiar: lo que dice FM es lo que hay
   for (const h of D.historial) {
+    if (revisado.has(h.iu)) continue;
     const l = llegada[h.iu];
     if (h.club !== club || !l || h.temporada >= tempDeF(l) || (seFue[h.iu] && seFue[h.iu] < l) || jugoEn[h.iu]?.has(h.temporada)) continue;
     h.club = null; h.club_id = null; h.ajena = true; IDX.ajenas++;
